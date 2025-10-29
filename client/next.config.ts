@@ -3,12 +3,17 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   async rewrites() {
     return [
-      // ✅ Proxy WebSocket ไปที่ OEE หลัก
+      // ✅ Proxy WebSocket (Socket.IO) ไปยัง SmartOEE API
+      {
+        source: "/socket.io/:path*",
+        destination: "http://host.docker.internal:3010/socket.io/:path*",
+      },
+      // ✅ Proxy REST API ไปยัง SmartOEE API
       {
         source: "/api-oee/:path*",
-        destination: "http://host.docker.internal:3010/:path*",
+        destination: "http://host.docker.internal:3010/api/:path*",
       },
-      // ✅ Proxy API ไปที่ QR API
+      // ✅ Proxy REST API ของ QR API
       {
         source: "/api-qr/:path*",
         destination: "http://qrsmart-api:8000/:path*",
