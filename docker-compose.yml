@@ -1,0 +1,75 @@
+# ==========================================
+# QRSmartOEE Docker Compose Configuration
+# ==========================================
+# (หมายเหตุ: attribute "version" ไม่จำเป็นแล้วใน Docker Compose v2)
+# version: "3.9"  # <--- ลบออกได้เลยตาม warning
+
+services:
+  # ======================
+  # PostgreSQL Database
+  # ======================
+  postgres:
+    image: postgres:16
+    container_name: qrsmart-db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: P@ssw0rd
+      POSTGRES_DB: qrsmartoee
+    ports:
+      - "5434:5432"  # ✅ เปลี่ยนจาก 5433 -> 5434 ป้องกันชนพอร์ตบน host
+    volumes:
+      - ./app-data/db:/var/lib/postgresql/data
+    networks:
+      - qrsmart-net
+
+  # ======================
+  # NestJS API Service
+  # ======================
+  api:
+    build: ./api
+    container_name: qrsmart-api
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      SITE_ID: 1
+      PORT: 8000
+      HTTP_BASIC_USER: admin
+      HTTP_BASIC_PASS: password123
+      DB_HOST: postgres           # ✅ ใช้ชื่อ service postgres (ไม่ใช้ localhost)
+      DB_PORT: 5432               # ✅ ภายใน container ใช้พอร์ตตรงของ Postgres
+      DB_USERNAME: admin
+      DB_PASSWORD: P@ssw0rd
+      DB_DATABASE: qrsmartoee
+      TCP_SERVER_HOST: host.docker.internal
+      TCP_SERVER_PORT: 5001
+      MODBUS_IP: host.docker.internal
+      MODBUS_PORT: 11502
+    depends_on:
+      - postgres
+    networks:
+      - qrsmart-net
+
+  # ======================
+  # Next.js Client Service
+  # ======================
+  client:
+    build: ./client
+    container_name: qrsmart-client
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      NEXT_PUBLIC_SOCKET_URL: http://host.docker.internal:3100
+      NEXT_PUBLIC_QR_API_USERNAME: admin
+      NEXT_PUBLIC_QR_API_PASSWORD: password123
+      NEXT_PUBLIC_SOCKET_QR_URL: http://qrsmart-api:8000
+    depends_on:
+      - api
+    networks:
+      - qrsmart-net
+
+networks:
+  qrsmart-net:
+    driver: bridge

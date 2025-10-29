@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+/* Remove the old @theme block and replace it with this */
+@layer base {
+  :root {
+    /* These are your light mode colors */
+    --background: 255 255 255; /* Converted to HSL-like values for Tailwind */
+    --foreground: 23 23 23;
+
+    /* You can add all your other theme variables here */
+    --card: 255 255 255;
+    --card-foreground: 23 23 23;
+    /* ... etc. */
+  }
+
+  .dark {
+    /* These are your dark mode colors */
+    --background: 10 10 10;
+    --foreground: 237 237 237;
+
+    /* ... etc. */
+  }
+}
+
+/* Keep any other base styles you have */
+@layer base {
+  body {
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  }
+}
