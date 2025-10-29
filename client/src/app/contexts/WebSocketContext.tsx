@@ -70,7 +70,7 @@ function WebSocketProvider({ children }: SocketProviderProps) {
     // console.log('⚙️ Options:', JSON.stringify(socketOptions, null, 2));
     console.groupEnd();
 
-    const newSocket = io(HOST_API.length === 0 ? "/" : HOST_API, socketOptions);
+    const newSocket = io("/api-oee", socketOptions);
 
     // // --- 2. Log ทุก Event ที่ได้รับจาก Server (ดีบักชื่อ Event) ---
     // newSocket.onAny((eventName, ...args) => {

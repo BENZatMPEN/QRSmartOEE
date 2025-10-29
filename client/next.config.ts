@@ -3,26 +3,19 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   async rewrites() {
     return [
-      // ✅ Socket server (รันบนเครื่องจริง)
+      // ✅ Proxy WebSocket ไปที่ OEE หลัก
       {
         source: "/api-oee/:path*",
-        // destination: "http://localhost:3100/api/:path*",
-        destination: "http://host.docker.internal:3100/api/:path*",
-        // 💡 ถ้าใช้ Linux ต้องเพิ่ม extra_hosts ใน docker-compose
+        destination: "http://host.docker.internal:3010/:path*",
       },
-
-      // ✅ API (NestJS ใน docker-compose service: qrsmart-api)
+      // ✅ Proxy API ไปที่ QR API
       {
         source: "/api-qr/:path*",
-        // destination: "http://localhost:8000/:path*",
         destination: "http://qrsmart-api:8000/:path*",
       },
     ];
   },
-
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  eslint: { ignoreDuringBuilds: true },
 };
 
 export default nextConfig;

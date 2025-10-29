@@ -55,12 +55,13 @@ export function WebSocketQrProvider({ children }: Props) {
     console.groupEnd();
 
     const options: Partial<SocketOptions & ManagerOptions> = {
-      transports: ["polling", "websocket"],
+      transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 5,
       timeout: 5000,
       withCredentials: false,
+      path: "/socket.io",
     };
 
     const newSocket = io(HOST_API_QR, options);
