@@ -93,7 +93,9 @@ export default function App() {
         const response = await api_oee.get(url);
 
         if (response.data && Array.isArray(response.data.oees)) {
-          const transformedData = response.data.oees.map(transformApiData);
+          const transformedData = response.data.oees
+            .map(transformApiData)
+            .sort((a: OEEData, b: OEEData) => a.name.localeCompare(b.name));
           setOeeData(transformedData);
         } else {
           console.error("Invalid data structure from API:", response.data);
@@ -118,7 +120,9 @@ export default function App() {
     const handleDashboardUpdate = (stats: any) => {
       if (stats && Array.isArray(stats.oees)) {
         // 1. แปลงข้อมูลที่ได้รับจาก WebSocket ด้วยฟังก์ชันเดิม
-        const transformedData = stats.oees.map(transformApiData);
+        const transformedData = stats.oees
+          .map(transformApiData)
+          .sort((a: OEEData, b: OEEData) => a.name.localeCompare(b.name));
 
         // 2. อัปเดต State เพื่อให้หน้าจอ re-render ใหม่
         setOeeData(transformedData);
