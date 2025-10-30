@@ -1,3 +1,7 @@
+# ==========================================
+# QRSmartOEE Docker Compose Configuration
+# ==========================================
+
 services:
   # ======================
   # PostgreSQL Database
@@ -18,7 +22,7 @@ services:
       - qrsmart-net
 
   # ======================
-  # NestJS API Service
+  # NestJS API Service (QR)
   # ======================
   api:
     build: ./api
@@ -59,25 +63,31 @@ services:
       - qrsmart-net
 
   # ======================
-  # Nginx Reverse Proxy (ตัวใหม่ที่เพิ่มเข้ามา)
+  # Nginx Reverse Proxy
   # ======================
   proxy:
-    image: nginx:1.27-alpine # ใช้อิมเมจ Nginx
+    image: nginx:1.27-alpine
     container_name: qrsmart-proxy
     restart: always
     ports:
       - "4000:80"
     volumes:
-      - ./nginx:/etc/nginx/conf.d
-    networks:
-      - qrsmart-net
+      - ./nginx/default.conf:/etc/nginx/conf.d/qrsmart.conf:ro
     depends_on:
       - client
       - api
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - qrsmart-net
+      - oee-net
 
+# ======================
+# Network Definitions
+# ======================
 networks:
   qrsmart-net:
     driver: bridge
+
+  oee-net:
+    external: true
+    name: smartoee_default
 
