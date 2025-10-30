@@ -4,9 +4,9 @@ import {
   createContext,
   ReactNode,
   useContext,
-  useEffect,
   useState,
   useCallback,
+  useEffect,
 } from "react";
 import { io, ManagerOptions, Socket, SocketOptions } from "socket.io-client";
 
@@ -33,7 +33,10 @@ function WebSocketProvider({ children }: SocketProviderProps) {
 
   const disconnect = useCallback(() => {
     if (socket) {
-      console.log("🔌 [WebSocketQR] Disconnecting...");
+      console.groupCollapsed("🔌 [WebSocketOEE] Disconnecting..."); // Renamed Log
+      console.log("Socket ID:", socket.id);
+      console.log("Connected:", socket.connected);
+      console.groupEnd();
       socket.disconnect();
       setSocket(null);
     }
@@ -42,14 +45,19 @@ function WebSocketProvider({ children }: SocketProviderProps) {
   const connect = useCallback(() => {
     if (socket && socket.connected) {
       console.warn(
-        "[WebSocketQR] Attempted to connect when already connected. Aborting."
+        "⚠️ [WebSocketOEE] Already connected. Aborting new connection." // Renamed Log
       );
       return;
     }
 
     const token = localStorage.getItem("accessToken");
+    console.groupCollapsed("🛰️ [WebSocketOEE] Preparing to connect..."); // Renamed Log
+    console.log("📍 Current socket:", socket);
+    console.log("🔑 Token:", token ? "[Found]" : "[Missing]");
+    console.groupEnd();
+
     if (!token) {
-      console.error("❌ [WebSocketQR] No token found. Connection aborted.");
+      console.error("❌ [WebSocketOEE] No token found. Connection aborted."); // Renamed Log
       return;
     }
 
@@ -59,43 +67,74 @@ function WebSocketProvider({ children }: SocketProviderProps) {
           extraHeaders: { Authorization: token },
         },
       },
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
       timeout: 5000,
     };
-    const socketPath = "/ws-qr/socket.io";
-    console.log(`🛰️ [WebSocketQR] Connecting via path: ${socketPath}`);
 
-    // ⛔️ ลบการเชื่อมต่อแบบเก่า
-    // const newSocket = io(`${HOST_API}`, socketOptions);
+    // --- ✅ นี่คือจุดที่แก้ไข ---
+    // เปลี่ยน path ให้ตรงกับ Rule 1 ของ Nginx (สำหรับ 3010)
+    const socketPath = "/ws-oee/socket.io";
+    // -------------------------
 
-    // ✨ ใช้การเชื่อมต่อแบบใหม่
+    console.groupCollapsed("⚙️ [WebSocketOEE] Socket Configuration"); // Renamed Log
+    console.log("🌍 Path:", socketPath);
+    console.log("⚙️ Options:", socketOptions);
+    console.groupEnd();
+
+    // ✅ สร้าง Socket ใหม่
     const newSocket = io({
       ...socketOptions,
       path: socketPath,
     });
 
-    // --- (ส่วนที่เหลือของ Log เหมือนเดิม) ---
-
+    // --- Log Event หลัก ---
     newSocket.on("connect", () => {
-      console.log(
-        `✅ [WebSocketQR] Connected successfully! Socket ID: ${newSocket.id}`
-      );
+      console.groupCollapsed("✅ [WebSocketOEE] CONNECTED!"); // Renamed Log
+      console.log("🆔 Socket ID:", newSocket.id);
+      console.log("📶 Connected:", newSocket.connected);
+      console.groupEnd();
       setSocket(newSocket);
     });
 
     newSocket.on("disconnect", (reason) => {
-      console.warn(`🔌 [WebSocketQR] Disconnected. Reason: ${reason}`);
+      console.groupCollapsed("🔌 [WebSocketOEE] DISCONNECTED"); // Renamed Log
+      console.log("❗ Reason:", reason);
+      console.groupEnd();
       setSocket(null);
     });
 
     newSocket.on("connect_error", (error) => {
-      console.error("❌ [WebSocketQR] Connection Error:", error.message, error);
+      console.groupCollapsed("❌ [WebSocketOEE] CONNECTION ERROR"); // Renamed Log
+      console.error("Message:", error.message);
+      console.error("Details:", error);
+      console.groupEnd();
     });
 
+    // ... (ส่วน Log อื่นๆ เหมือนเดิม, แต่ผมเพิ่ม OEE เข้าไปในชื่อ) ...
     const manager = newSocket.io;
-    manager.on("error", (error) => {
-      console.error("[ManagerQR] Error:", error.message);
+
+    manager.on("reconnect_attempt", (attempt) => {
+      console.warn(`🌀 [ManagerOEE] Reconnect attempt #${attempt}`);
     });
-    // ... (Log อื่นๆ ของ Manager) ...
+    // ...
+    newSocket.onAny((event, ...args) => {
+      console.debug(`📨 [WebSocketOEE] Event '${event}' received:`, ...args);
+    });
+
+    console.log("🚀 [WebSocketOEE] Connection attempt started..."); // Renamed Log
+  }, [socket]);
+
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      if (socket) {
+        console.log("💥 [WebSocketOEE] Component unmounted, disconnecting..."); // Renamed Log
+        socket.disconnect();
+      }
+    };
   }, [socket]);
 
   return (

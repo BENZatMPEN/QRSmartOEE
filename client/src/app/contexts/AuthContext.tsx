@@ -35,8 +35,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const AUTH_FLAG_KEY = "isAuthenticated";
 const AUTH_USER_KEY = "user";
-// We will use the accessToken key from WebSocketContext for consistency
-// const AUTH_TOKEN_KEY = "token";
 const AUTH_TOKEN_KEY = "accessToken";
 const AUTH_REFRESH_TOKEN_KEY = "refreshToken";
 
@@ -46,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // 2. Get the connect and disconnect functions from the WebSocket context
+  // 2. Get the connect and disconnect functions
   const { connect: connectSocket, disconnect: disconnectSocket } =
     useWebSocket();
 
@@ -65,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const authStatus = localStorage.getItem(AUTH_FLAG_KEY);
         const userData = localStorage.getItem(AUTH_USER_KEY);
-        const token = localStorage.getItem(AUTH_TOKEN_KEY); // Also check for token
+        const token = localStorage.getItem(AUTH_TOKEN_KEY);
 
         if (authStatus === "true" && userData && token) {
           const parsedUser = JSON.parse(userData) as User;
@@ -79,10 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsAuthenticated(true);
             setUser(parsedUser);
 
-            // 3. Connect the WebSocket because we found a valid session
-            // console.log("[Auth] Valid session found, connecting WebSocket...");
+            // 3. Connect BOTH sockets
+            console.log("[Auth] Valid session found, connecting WebSocket...");
             connectSocket();
-            connectSocketQr();
+            connectSocketQr(); // ✅ This is correct
             return;
           }
         }
@@ -102,10 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     checkAuth();
-    // The dependency array ensures this runs only once on mount.
-    // Adding connectSocket might cause re-renders if not memoized with useCallback.
-    // Keeping it empty is correct for this "check once" logic.
-  }, []);
+  }, [connectSocket, connectSocketQr]); // ✅ Added dependencies for safety
 
   // AuthContext.tsx
 
@@ -143,13 +138,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               ? loginData.user
               : loginData;
 
-          // ✨ [UPDATED] รวมข้อมูลและกำหนดค่า id ที่นี่
           const userData: User = {
-            id: -1, // ใส่ค่า default ไว้ก่อน
+            id: -1,
             email: userPayload?.email ?? email ?? userPayload?.username ?? "",
             loginTime: new Date().toISOString(),
             ...userPayload,
-            ...userProfile, // ข้อมูลจาก profile จะเขียนทับค่า id และอื่นๆ ที่ซ้ำกัน
+            ...userProfile,
           };
 
           localStorage.setItem(AUTH_FLAG_KEY, "true");
@@ -158,7 +152,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsAuthenticated(true);
           setUser(userData);
 
+          // --- ✅ FIXED BUG 1 ---
+          // Connect BOTH sockets on login
           connectSocket();
+          connectSocketQr();
+          // ---------------------
 
           return true;
         }
@@ -174,9 +172,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    // 5. Disconnect WebSocket BEFORE clearing user data
+    // --- ✅ FIXED BUG 2 ---
+    // Disconnect BOTH sockets
     console.log("[Auth] Logging out, disconnecting WebSocket...");
     disconnectSocket();
+    disconnectSocketQr();
+    // ---------------------
 
     clearAuthStorage();
     setIsAuthenticated(false);
