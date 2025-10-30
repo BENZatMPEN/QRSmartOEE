@@ -12,6 +12,7 @@ import {
   CardActionArea,
   Stack,
   Divider,
+  CircularProgress,
 } from "@mui/material";
 import {
   Settings as SettingsIcon,
@@ -42,7 +43,7 @@ interface OEEData {
 const transformApiData = (apiItem: OEEItem): OEEData => {
   // ฟังก์ชันสำหรับแปลง status
   const mapStatus = (batchStatus: string | null): OEEData["status"] => {
-    if (!batchStatus) return "ended"; // ถ้า status เป็น null ให้เป็น stopped
+    if (!batchStatus) return "ended";
     switch (batchStatus.toLowerCase()) {
       case "running":
         return "running";
@@ -81,7 +82,7 @@ const transformApiData = (apiItem: OEEItem): OEEData => {
 export default function App() {
   const { socket } = useWebSocket();
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated, loading } = useAuth();
 
   const [oeeData, setOeeData] = useState<OEEData[]>([]);
 
@@ -105,8 +106,10 @@ export default function App() {
         console.error("Error fetching OEE data:", error);
       }
     };
-    fetchInitialData();
-  }, []);
+    if (isAuthenticated && user?.id) {
+      fetchInitialData();
+    }
+  }, [isAuthenticated, user?.id]);
 
   // --- Effect สำหรับรับข้อมูลอัปเดต (WebSocket) ---
   useEffect(() => {
@@ -176,6 +179,7 @@ export default function App() {
     router.push(`/dashboard/oee/${oeeId}`);
   };
 
+  // ... (Component: OEECard) ...
   const OEECard = ({ data }: { data: OEEData }) => (
     <Card
       sx={{

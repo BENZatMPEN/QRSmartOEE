@@ -4,11 +4,12 @@ import {
   createContext,
   ReactNode,
   useContext,
+  useEffect,
   useState,
   useCallback,
-  useEffect,
 } from "react";
 import { io, ManagerOptions, Socket, SocketOptions } from "socket.io-client";
+import { HOST_API } from "@/app/confix";
 
 export type WebSocketContextProps = {
   socket: Socket | null;
@@ -33,10 +34,7 @@ function WebSocketProvider({ children }: SocketProviderProps) {
 
   const disconnect = useCallback(() => {
     if (socket) {
-      console.groupCollapsed("🔌 [WebSocketOEE] Disconnecting..."); // Renamed Log
-      console.log("Socket ID:", socket.id);
-      console.log("Connected:", socket.connected);
-      console.groupEnd();
+      console.log("🔌 [WebSocket] Disconnecting...");
       socket.disconnect();
       setSocket(null);
     }
@@ -45,7 +43,7 @@ function WebSocketProvider({ children }: SocketProviderProps) {
   const connect = useCallback(() => {
     if (socket && socket.connected) {
       console.warn(
-        "⚠️ [WebSocketOEE] Already connected. Aborting new connection." // Renamed Log
+        "[WebSocket] Attempted to connect when already connected. Aborting."
       );
       return;
     }
@@ -57,84 +55,81 @@ function WebSocketProvider({ children }: SocketProviderProps) {
     console.groupEnd();
 
     if (!token) {
-      console.error("❌ [WebSocketOEE] No token found. Connection aborted."); // Renamed Log
+      console.error("❌ [WebSocket] No token found. Connection aborted.");
       return;
     }
 
+    const isProd = process.env.NODE_ENV === "production";
+    console.log(
+      `🌐 [WebSocket] Environment: ${isProd ? "Production" : "Development"}`
+    );
     const socketOptions: Partial<SocketOptions & ManagerOptions> = {
       transportOptions: {
         polling: {
           extraHeaders: { Authorization: token },
         },
       },
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-      timeout: 5000,
+      // transports: ["websocket", "polling"],
+      // timeout: 5000,
+      // reconnection: true,
+      // reconnectionDelay: 1000,
+      // reconnectionAttempts: 5,
     };
 
-    // --- ✅ นี่คือจุดที่แก้ไข ---
-    // เปลี่ยน path ให้ตรงกับ Rule 1 ของ Nginx (สำหรับ 3010)
-    const socketPath = "/ws-oee/socket.io";
-    // -------------------------
+    let newSocket;
 
-    console.groupCollapsed("⚙️ [WebSocketOEE] Socket Configuration"); // Renamed Log
-    console.log("🌍 Path:", socketPath);
-    console.log("⚙️ Options:", socketOptions);
-    console.groupEnd();
+    // 🎯 2. แยกตาม environment
+    if (isProd) {
+      // ---------------------------------------------------
+      // 🏭 PRODUCTION MODE
+      // ใช้ path `/ws-oee/socket.io` ที่ Nginx proxy ไว้
+      // (ไม่ระบุ host → ใช้ origin เดียวกับหน้าเว็บ)
+      // ---------------------------------------------------
+      const socketPath = "/ws-oee/socket.io";
+      console.log(`🌍 [Socket] PROD mode → path: ${socketPath}`);
+      newSocket = io({
+        ...socketOptions,
+        path: socketPath,
+      });
+    } else {
+      // ---------------------------------------------------
+      // 🧑‍💻 DEVELOPMENT MODE
+      // เชื่อมตรงไปที่ backend จริง (port 3010)
+      // ---------------------------------------------------
+      console.log(`🌍 [Socket] DEV mode → host: ${HOST_API}`);
+      newSocket = io(HOST_API, socketOptions);
+    }
 
-    // ✅ สร้าง Socket ใหม่
-    const newSocket = io({
-      ...socketOptions,
-      path: socketPath,
-    });
-
-    // --- Log Event หลัก ---
+    // --- 3. Log สถานะการเชื่อมต่อหลัก ---
     newSocket.on("connect", () => {
-      console.groupCollapsed("✅ [WebSocketOEE] CONNECTED!"); // Renamed Log
-      console.log("🆔 Socket ID:", newSocket.id);
-      console.log("📶 Connected:", newSocket.connected);
-      console.groupEnd();
+      // console.log(`✅ [WebSocket] Connected successfully! Socket ID: ${newSocket.id}`);
       setSocket(newSocket);
     });
 
     newSocket.on("disconnect", (reason) => {
-      console.groupCollapsed("🔌 [WebSocketOEE] DISCONNECTED"); // Renamed Log
-      console.log("❗ Reason:", reason);
-      console.groupEnd();
+      console.warn(`🔌 [WebSocket] Disconnected. Reason: ${reason}`);
       setSocket(null);
     });
 
     newSocket.on("connect_error", (error) => {
-      console.groupCollapsed("❌ [WebSocketOEE] CONNECTION ERROR"); // Renamed Log
-      console.error("Message:", error.message);
-      console.error("Details:", error);
-      console.groupEnd();
+      // นี่คือ Log ที่สำคัญที่สุดสำหรับปัญหาการเชื่อมต่อ
+      console.error("❌ [WebSocket] Connection Error:", error.message, error);
     });
 
-    // ... (ส่วน Log อื่นๆ เหมือนเดิม, แต่ผมเพิ่ม OEE เข้าไปในชื่อ) ...
+    // --- 4. Log จากตัวจัดการการเชื่อมต่อ (Manager) เพื่อดีบักระดับล่าง ---
     const manager = newSocket.io;
 
     manager.on("reconnect_attempt", (attempt) => {
-      console.warn(`🌀 [ManagerOEE] Reconnect attempt #${attempt}`);
-    });
-    // ...
-    newSocket.onAny((event, ...args) => {
-      console.debug(`📨 [WebSocketOEE] Event '${event}' received:`, ...args);
+      console.warn(`[Manager] Reconnect attempt #${attempt}...`);
     });
 
-    console.log("🚀 [WebSocketOEE] Connection attempt started..."); // Renamed Log
-  }, [socket]);
+    manager.on("reconnect", (attempt) => {
+      console.log(`[Manager] Reconnected successfully on attempt #${attempt}!`);
+    });
 
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (socket) {
-        console.log("💥 [WebSocketOEE] Component unmounted, disconnecting..."); // Renamed Log
-        socket.disconnect();
-      }
-    };
+    manager.on("reconnect_error", (error) => {
+      console.error("[Manager] Reconnection failed:", error.message);
+    });
   }, [socket]);
 
   return (
