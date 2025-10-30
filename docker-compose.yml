@@ -32,7 +32,7 @@ services:
       SITE_ID: 1
       PORT: 8000
       HTTP_BASIC_USER: admin
-      HTTP_BASIC_PASS: password123
+      HTTP_BASIC_PASS: P@ssw0rd1
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USERNAME: admin
@@ -55,8 +55,11 @@ services:
     container_name: qrsmart-client
     restart: always
     environment:
+      NODE_ENV: production
       NEXT_PUBLIC_QR_API_USERNAME: admin
-      NEXT_PUBLIC_QR_API_PASSWORD: password123
+      NEXT_PUBLIC_QR_API_PASSWORD: P@ssw0rd1
+      NEXT_PUBLIC_OEE_API_URL: http://host.docker.internal:3010
+      NEXT_PUBLIC_QR_API_URL: http://qrsmart-api:8000
     depends_on:
       - api
     networks:
