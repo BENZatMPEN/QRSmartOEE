@@ -1,0 +1,123 @@
+# ==========================================
+# 🌍 Node.js / TypeScript
+# ==========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+.pnpm-store/
+
+# ==========================================
+# ⚙️ Environment Files
+# ==========================================
+.env
+.env.*
+!.env.example   # ยกเว้นไฟล์ตัวอย่าง
+*.local
+*.env.backup
+
+# ==========================================
+# 🧱 Build Outputs
+# ==========================================
+dist/
+build/
+.next/
+out/
+coverage/
+.cache/
+.tmp/
+
+# ==========================================
+# 🧰 IDE / Editor
+# ==========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+*.orig
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# 🐳 Docker / Data Volumes
+# ==========================================
+*.tar
+app-data/
+**/app-data/**
+**/db-data/**
+**/data/**
+docker-compose.override.yml
+
+# ==========================================
+# 🔧 Logs / Runtime
+# ==========================================
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+nohup.out
+*.sock
+
+# ==========================================
+# ⚙️ TypeScript
+# ==========================================
+*.tsbuildinfo
+
+# ==========================================
+# 🧩 Frontend (Next.js)
+# ==========================================
+/client/.next/
+/client/out/
+/client/.env
+/client/.env.*
+/client/coverage/
+/client/logs/
+/client/.cache/
+*.eslintcache
+*.vercel/
+.vercel/
+
+# ==========================================
+# 🧱 Backend (NestJS)
+# ==========================================
+/api/dist/
+/api/.env
+/api/.env.*
+/api/coverage/
+/api/logs/
+/api/.cache/
+
+# ==========================================
+# 🧱 Database / Backups
+# ==========================================
+*.sql
+*.dump
+*.bak
+*.backup
+
+# ==========================================
+# 💻 OS / Misc
+# ==========================================
+.DS_Store
+ehthumbs.db
+Icon?
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# ==========================================
+# 🧩 Local scripts / config
+# ==========================================
+/docker-compose.override.yml
+/local/
+scripts/local/
+notes/
