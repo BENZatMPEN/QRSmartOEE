@@ -12,7 +12,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: P@ssw0rd
+      POSTGRES_PASSWORD: "P@ssw0rd"
       POSTGRES_DB: qrsmartoee
     ports:
       - "5434:5432"
@@ -32,11 +32,11 @@ services:
       SITE_ID: 1
       PORT: 8000
       HTTP_BASIC_USER: admin
-      HTTP_BASIC_PASS: P@ssw0rd1
+      HTTP_BASIC_PASS: "P@ssw0rd1"
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USERNAME: admin
-      DB_PASSWORD: P@ssw0rd
+      DB_PASSWORD: "P@ssw0rd"
       DB_DATABASE: qrsmartoee
       TCP_SERVER_HOST: 172.18.40.12
       TCP_SERVER_PORT: 4196
@@ -57,7 +57,7 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_QR_API_USERNAME: admin
-      NEXT_PUBLIC_QR_API_PASSWORD: P@ssw0rd1
+      NEXT_PUBLIC_QR_API_PASSWORD: "P@ssw0rd1"
       NEXT_PUBLIC_OEE_API_URL: http://host.docker.internal:3010
       NEXT_PUBLIC_QR_API_URL: http://qrsmart-api:8000
     depends_on:
@@ -93,4 +93,3 @@ networks:
   oee-net:
     external: true
     name: smartoee_default
-

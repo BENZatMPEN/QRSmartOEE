@@ -126,7 +126,7 @@ server {
 ### 1. Clone โปรเจกต์
 
 ```bash
-git clone https://github.com/your-org/QRSmartOEE.git
+git clone https://github.com/BENZatMPEN/QRSmartOEE.git
 cd QRSmartOEE
 ```
 
