@@ -1,11 +1,12 @@
 import {
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Not } from 'typeorm';
 import { CreateOeeDto } from './dto/create-oee.dto';
 import { UpdateOeeDto } from './dto/update-oee.dto';
 import { Oee } from './entities/oee.entity';
@@ -160,15 +161,29 @@ export class OeeService {
   async createQRProduct(
     createQrProductDto: CreateQrProductDto,
   ): Promise<QrProduct> {
-    const { oeeId, ...qrProductData } = createQrProductDto;
+    const { oeeId, qrFormatSku, ...qrProductData } = createQrProductDto;
 
     const oee = await this.oeeRepository.findOneBy({ id: oeeId });
     if (!oee) {
       throw new NotFoundException(`OEE with ID #${oeeId} not found`);
     }
 
+    const existingQrSku = await this.qrProductRepo.findOne({
+      where: {
+        oeeId: oeeId,
+        qrFormatSku: qrFormatSku,
+      },
+    });
+
+    if (existingQrSku) {
+      throw new ConflictException(
+        `QR/SKU "${qrFormatSku}" already exists for this OEE (ID #${oeeId}).`,
+      );
+    }
+
     const qrProduct = this.qrProductRepo.create({
       ...qrProductData,
+      qrFormatSku: qrFormatSku,
       oee: oee,
       oeeId: oeeId,
     });
@@ -180,16 +195,36 @@ export class OeeService {
     id: number,
     updateQrProductDto: UpdateQrProductDto,
   ): Promise<QrProduct> {
-    const qrProduct = await this.qrProductRepo.preload({
-      id: id,
-      ...updateQrProductDto,
-    });
-
-    if (!qrProduct) {
+    const existingQrProduct = await this.qrProductRepo.findOneBy({ id: id });
+    if (!existingQrProduct) {
       throw new NotFoundException(`QrProduct with ID #${id} not found`);
     }
 
-    return this.qrProductRepo.save(qrProduct);
+    if (
+      updateQrProductDto.qrFormatSku &&
+      updateQrProductDto.qrFormatSku !== existingQrProduct.qrFormatSku
+    ) {
+      const duplicateQrSku = await this.qrProductRepo.findOne({
+        where: {
+          oeeId: existingQrProduct.oeeId,
+          qrFormatSku: updateQrProductDto.qrFormatSku,
+          id: Not(id),
+        },
+      });
+
+      if (duplicateQrSku) {
+        throw new ConflictException(
+          `QR/SKU "${updateQrProductDto.qrFormatSku}" already exists for this OEE (ID #${existingQrProduct.oeeId}).`,
+        );
+      }
+    }
+
+    const updatedQrProduct = this.qrProductRepo.merge(
+      existingQrProduct,
+      updateQrProductDto,
+    );
+
+    return this.qrProductRepo.save(updatedQrProduct);
   }
 
   async deleteQRProduct(id: number) {
@@ -333,7 +368,7 @@ export class OeeService {
     masterOeeId: number,
   ): Promise<ImportResult> {
     const failedRows: FailedRow[] = [];
-    const inserted: QrProduct[] = [];
+    const processedProducts: QrProduct[] = []; // 👈 เปลี่ยนชื่อจาก inserted
 
     const nameToIdMap: Map<string, string> = new Map(
       productList.map((p) => [p.name.trim(), p.id]),
@@ -344,6 +379,8 @@ export class OeeService {
     );
     console.debug(`📦 Product list: ${productList.length} items`);
     console.debug(`🗺️ Mapped names = [${[...nameToIdMap.keys()].join(', ')}]`);
+
+    // 1. ค้นหา Oee (ในระบบ QROEE) โดยใช้ masterOeeId
     const oee = await this.oeeRepository.findOne({ where: { masterOeeId } });
 
     if (!oee) {
@@ -368,8 +405,11 @@ export class OeeService {
         })
         .on('end', async () => {
           console.log(`📊 Total rows parsed: ${results.length}`);
+
           for (const [index, row] of results.entries()) {
             const trimmedProductName = row.productName?.trim();
+            const qrSku = row.qrFormatSku?.trim();
+            const specialFactor = parseFloat(row.specialFactor);
             const productId: string | undefined =
               nameToIdMap.get(trimmedProductName);
 
@@ -385,22 +425,49 @@ export class OeeService {
               continue;
             }
 
+            if (!qrSku || !row.specialFactor || isNaN(specialFactor)) {
+              console.warn(
+                `⚠️ [Row ${index}] Missing or invalid data (SKU or Special Factor)`,
+              );
+              failedRows.push({
+                index,
+                reason: 'Missing or invalid data (SKU or Special Factor)',
+                row,
+              });
+              continue;
+            }
+
             try {
-              const product: QrProduct = this.qrProductRepo.create({
-                qrFormatSku: row.qrFormatSku?.trim(),
-                specialFactor: parseFloat(row.specialFactor),
-                productId,
-                productName: trimmedProductName,
-                masterOeeId: masterOeeId,
-                oeeId: oee.id,
+              let product = await this.qrProductRepo.findOne({
+                where: {
+                  oeeId: oee.id,
+                  qrFormatSku: qrSku,
+                },
               });
 
-              console.debug(`✅ [Row ${index}] Inserting QrProduct:`, product);
+              if (product) {
+                console.debug(`✅ [Row ${index}] Updating QrProduct:`, qrSku);
+                product.specialFactor = specialFactor;
+                product.productId = productId;
+                product.productName = trimmedProductName;
+              } else {
+                console.debug(`✅ [Row ${index}] Creating QrProduct:`, qrSku);
+                product = this.qrProductRepo.create({
+                  qrFormatSku: qrSku,
+                  specialFactor: specialFactor,
+                  productId: productId,
+                  productName: trimmedProductName,
+                  masterOeeId: masterOeeId,
+                  oeeId: oee.id,
+                });
+              }
 
               await this.qrProductRepo.save(product);
-              inserted.push(product);
+              processedProducts.push(product);
             } catch (err: any) {
-              console.error(`❌ [Row ${index}] Insert failed: ${err.message}`);
+              console.error(
+                `❌ [Row ${index}] Insert/Update failed: ${err.message}`,
+              );
               failedRows.push({
                 index,
                 reason: err.message,
@@ -410,7 +477,7 @@ export class OeeService {
           }
 
           const result: ImportResult = {
-            successCount: inserted.length,
+            successCount: processedProducts.length,
             failCount: failedRows.length,
             failedRows,
           };
