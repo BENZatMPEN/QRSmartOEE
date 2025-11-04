@@ -27,8 +27,8 @@ import {
 import { api_oee } from "../../../lib/axios";
 import useWebSocket from "../../../contexts/WebSocketContext";
 import useWebSocketQr from "../../../contexts/WebSocketQrContext";
+import { useAuth } from "../../../contexts/AuthContext";
 
-// --- Interfaces ---
 type OEEStatus = "running" | "ended" | "no plan" | "breakdown" | "unknown";
 interface OEEDetailData {
   id: string;
@@ -42,7 +42,7 @@ interface LastQrScanData {
   oeeId: number;
   status: "FOUND" | "NOT_FOUND" | "ERROR";
   scannedText: string;
-  type?: "SKU" | "PD" | "START" | "STOP"; // ✨ 2. เพิ่ม START และ STOP
+  type?: "SKU" | "PD" | "START" | "STOP";
   productInfo?: {
     productId: string;
     productName: string;
@@ -59,7 +59,7 @@ export default function OEEDetailPage() {
   const router = useRouter();
   const { socket } = useWebSocket();
   const { socketQr } = useWebSocketQr();
-
+  const { user } = useAuth();
   const [oeeData, setOeeData] = useState<OEEDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastQrScan, setLastQrScan] = useState<LastQrScanData | null>(null);
@@ -96,18 +96,16 @@ export default function OEEDetailPage() {
         params: { siteId: 1 },
       });
 
-      // ✨ --- 4. SET BATCH ID ที่นี่ --- ✨
       if (response.data && response.data.id) {
-        setCurrentBatchId(response.data.id); // บันทึก ID ของ batch
+        setCurrentBatchId(response.data.id);
       } else {
-        setCurrentBatchId(null); // เคลียร์ค่าถ้าไม่มี batch
+        setCurrentBatchId(null);
       }
 
       setOeeData(formatBatchData(response.data));
     } catch (error) {
       console.error("Error fetching OEE detail:", error);
 
-      // ✨ --- 5. เคลียร์ BATCH ID เมื่อเกิด Error --- ✨
       setCurrentBatchId(null);
       setOeeData({
         id: oeeId,
@@ -127,12 +125,11 @@ export default function OEEDetailPage() {
   }, [fetchOeeDetail]);
 
   useEffect(() => {
-    // ... (useEffect สำหรับ socket dashboard ไม่เปลี่ยนแปลง)
     if (!socket || !socket.connected) {
       return;
     }
     const siteId = 1;
-    const eventName = `dashboard_${siteId}`;
+    const eventName = `dashboard_${siteId}_${user?.id}`;
     const handleDashboardUpdate = (stats: any) => {
       if (stats && Array.isArray(stats.oees)) {
         const currentOeeDataFromSocket = stats.oees.find(
@@ -168,8 +165,6 @@ export default function OEEDetailPage() {
       console.log(`[WebSocketQr] 📦 Received QR update:`, data);
       setLastQrScan(data);
 
-      // ✨ --- 1. เก็บ Product ID จากการสแกน SKU --- ✨
-      // ถ้าสแกน SKU เจอ ให้เก็บ productId ลง state
       if (
         data.type === "SKU" &&
         data.status === "FOUND" &&
@@ -178,7 +173,6 @@ export default function OEEDetailPage() {
         setLastScannedProductId(parseInt(data.productInfo.productId));
       }
 
-      // --- Logic for STOP ---
       if (data.type === "STOP" && data.status === "FOUND" && currentBatchId) {
         if (oeeData?.status === "ended" && data?.oeeId === Number(oeeId)) {
           setAlertMessage(
@@ -203,9 +197,7 @@ export default function OEEDetailPage() {
           });
       }
 
-      // --- Logic for START ---
       if (data.type === "START" && data.status === "FOUND") {
-        // --- ตรวจสอบเงื่อนไขก่อนเริ่ม ---
         if (oeeData?.status === "running" || oeeData?.status === "breakdown") {
           setAlertMessage(
             `Cannot start a new batch while status is "${oeeData.status}".`
@@ -229,14 +221,12 @@ export default function OEEDetailPage() {
           return;
         }
 
-        // ✨ --- START: เพิ่มการ Validate plannedQuantity --- ✨
         const plannedQty = parseInt(oeeData.plannedQuantity, 10);
         if (isNaN(plannedQty) || plannedQty <= 0) {
           setAlertMessage("Planned Quantity must be a number greater than 0.");
           setIsAlertModalOpen(true);
-          return; // หยุดการทำงาน
+          return;
         }
-        // ✨ --- END: เพิ่มการ Validate --- ✨
 
         const startDate = new Date();
         const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
@@ -259,14 +249,12 @@ export default function OEEDetailPage() {
         api_oee
           .post(`/oee-batches?siteId=1&oeeId=${oeeId}`, payload)
           .then((createResponse) => {
-            // 1. POST สำเร็จ: ได้รับข้อมูล Batch ที่เพิ่งสร้าง
             console.log(
               "✅ New batch created successfully:",
               createResponse.data
             );
             const newBatchId = createResponse.data.id;
 
-            // ตรวจสอบว่าได้ ID กลับมาหรือไม่
             if (!newBatchId) {
               throw new Error(
                 "API did not return a new batch ID after creation."
@@ -277,20 +265,16 @@ export default function OEEDetailPage() {
               `Attempting to start the new batch with ID: ${newBatchId}`
             );
 
-            // 2. เรียก API ตัวที่สอง (PUT) และ return promise ออกไป
             return api_oee.put(
               `/oee-batches/${newBatchId}/start?siteId=1&oeeId=${oeeId}`
             );
           })
           .then((startResponse) => {
-            // 3. PUT สำเร็จ: Batch ได้ถูก start แล้ว
             console.log("✅ Batch started successfully:", startResponse.data);
 
-            // 4. ทำ Action สุดท้ายหลังจากทุกอย่างสำเร็จ
             fetchOeeDetail();
           })
           .catch((error) => {
-            // 5. .catch() นี้จะดักจับ Error จากทั้ง .post() และ .put()
             console.error("❌ Failed during start batch process:", error);
             const errorMessage =
               error.response?.data?.message ||
@@ -298,10 +282,8 @@ export default function OEEDetailPage() {
             setAlertMessage(errorMessage);
             setIsAlertModalOpen(true);
           });
-        // ✨ --- END: แก้ไข Promise Chain --- ✨
       }
 
-      // --- Logic การจัดการ State อื่นๆ ---
       setOeeData((currentOeeData) => {
         if (!currentOeeData) return null;
 
@@ -341,7 +323,6 @@ export default function OEEDetailPage() {
           }
         }
 
-        // --- Logic อัปเดต SKU/PD เมื่อสถานะเป็น ended ---
         if (currentOeeData.status !== "ended") {
           return currentOeeData;
         }
@@ -377,7 +358,6 @@ export default function OEEDetailPage() {
     lastScannedProductId,
   ]);
 
-  // --- (Functions and JSX remain the same) ---
   const getChipColor = (
     status: OEEStatus
   ): "success" | "error" | "warning" | "default" => {
@@ -475,7 +455,6 @@ export default function OEEDetailPage() {
       </AppBar>
 
       <main className="p-4 md:p-6 space-y-6">
-        {/* Main OEE Detail Card */}
         <Box sx={{ display: "flex", justifyContent: "center" }}>
           <Paper
             elevation={3}
@@ -532,16 +511,11 @@ export default function OEEDetailPage() {
                   variant="outlined"
                   onChange={handleInputChange("plannedQuantity")}
                   InputProps={{ readOnly: !isFormEditable }}
-                  // ✨ --- START: แก้ไข value ที่นี่ --- ✨
-                  // ถ้ากำลังแก้ไข (isFormEditable = true) ให้ใช้ค่าดิบจาก state
-                  // ถ้าเป็นโหมดอ่านอย่างเดียว (isFormEditable = false) ให้ใช้ค่าที่จัดรูปแบบแล้ว
                   value={
                     isFormEditable
                       ? oeeData.plannedQuantity
                       : formattedPlannedQuantity
                   }
-                  // ✨ --- END: แก้ไข value --- ✨
-
                   sx={{
                     "& .MuiInputBase-input[readOnly]": {
                       backgroundColor: "#f0f0f0",
@@ -576,15 +550,11 @@ export default function OEEDetailPage() {
           </Paper>
         </Box>
 
-        {/* Last QR Scan Card (UI remains the same) */}
         {lastQrScan && (
-          <Box sx={{ display: "flex", justifyContent: "center" }}>
-            {/* ... JSX for Last QR Scan Card ... */}
-          </Box>
+          <Box sx={{ display: "flex", justifyContent: "center" }}></Box>
         )}
       </main>
 
-      {/* ✨ 4. JSX สำหรับ Alert Modal */}
       <Dialog
         open={isAlertModalOpen}
         onClose={() => setIsAlertModalOpen(false)}
@@ -606,9 +576,6 @@ export default function OEEDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
-      {/* Main OEE Detail Card */}
-      {/* Last QR Scan Card */}
-      {/* Alert Modal */}
     </Box>
   );
 }

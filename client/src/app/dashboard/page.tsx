@@ -12,7 +12,6 @@ import {
   CardActionArea,
   Stack,
   Divider,
-  CircularProgress,
 } from "@mui/material";
 import {
   Settings as SettingsIcon,
@@ -22,10 +21,9 @@ import { api_oee } from "@/app/lib/axios";
 import { OEEItem } from "@/app/types/api.dashboard";
 import { fNumber } from "@/app/lib/utils/formatNumber";
 import useWebSocket from "@/app/contexts/WebSocketContext";
-import { useAuth } from "@/app/contexts/AuthContext"; // Import useAuth ตัวจริง
-import { useRouter } from "next/navigation"; // Import useRouter ตัวจริง
+import { useAuth } from "@/app/contexts/AuthContext";
+import { useRouter } from "next/navigation";
 
-// 1. Interface เดิมยังคงใช้งานได้ ไม่ต้องเปลี่ยนแปลง
 interface OEEData {
   id: string;
   name: string;
@@ -39,15 +37,13 @@ interface OEEData {
   status: "running" | "breakdown" | "ended";
 }
 
-// 2. สร้างฟังก์ชันสำหรับแปลงข้อมูลจาก API
 const transformApiData = (apiItem: OEEItem): OEEData => {
-  // ฟังก์ชันสำหรับแปลง status
   const mapStatus = (batchStatus: string | null): OEEData["status"] => {
     if (!batchStatus) return "ended";
     switch (batchStatus.toLowerCase()) {
       case "running":
         return "running";
-      case "breakdown": // API ส่ง "ended" มา แต่ UI เรามี "stopped"
+      case "breakdown":
         return "breakdown";
       case "ended":
         return "ended";
@@ -56,7 +52,6 @@ const transformApiData = (apiItem: OEEItem): OEEData => {
     }
   };
 
-  // ฟังก์ชันสำหรับ format เวลา
   const formatTime = (isoDate: string | null): string => {
     if (!isoDate) return "N/A";
     return new Date(isoDate).toLocaleTimeString("th-TH", {
@@ -66,16 +61,16 @@ const transformApiData = (apiItem: OEEItem): OEEData => {
   };
 
   return {
-    id: apiItem.id.toString(), // แปลง id เป็น string
-    name: `${apiItem.productionName} - ${apiItem.productName}`, // รวมชื่อ Production และ Product
+    id: apiItem.id.toString(),
+    name: `${apiItem.productionName} - ${apiItem.productName}`,
     lotNumber: apiItem.lotNumber,
-    startTime: formatTime(apiItem.startDate), // Format เวลาเริ่มต้น
-    endTime: formatTime(apiItem.endDate), // Format เวลาสิ้นสุด
-    oee: apiItem.oeePercent, // ใช้ oeePercent
+    startTime: formatTime(apiItem.startDate),
+    endTime: formatTime(apiItem.endDate),
+    oee: apiItem.oeePercent,
     actual: apiItem.actual,
-    plan: apiItem.plan || 0, // ถ้า plan เป็น null ให้ใช้ 0
+    plan: apiItem.plan || 0,
     target: apiItem.target,
-    status: mapStatus(apiItem.batchStatus), // แปลง batchStatus
+    status: mapStatus(apiItem.batchStatus),
   };
 };
 
@@ -86,7 +81,6 @@ export default function App() {
 
   const [oeeData, setOeeData] = useState<OEEData[]>([]);
 
-  // --- Effect สำหรับดึงข้อมูลเริ่มต้น (HTTP) ---
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -111,23 +105,20 @@ export default function App() {
     }
   }, [isAuthenticated, user?.id]);
 
-  // --- Effect สำหรับรับข้อมูลอัปเดต (WebSocket) ---
   useEffect(() => {
     if (!socket) {
       return;
     }
 
-    const siteId = 1; // หรือ siteId ที่เลือก
-    const eventName = `dashboard_${siteId}`;
+    const siteId = 1;
+    const eventName = `dashboard_${siteId}_${user?.id}`;
 
     const handleDashboardUpdate = (stats: any) => {
       if (stats && Array.isArray(stats.oees)) {
-        // 1. แปลงข้อมูลที่ได้รับจาก WebSocket ด้วยฟังก์ชันเดิม
         const transformedData = stats.oees
           .map(transformApiData)
           .sort((a: OEEData, b: OEEData) => a.name.localeCompare(b.name));
 
-        // 2. อัปเดต State เพื่อให้หน้าจอ re-render ใหม่
         setOeeData(transformedData);
       } else {
         console.warn(
@@ -136,17 +127,14 @@ export default function App() {
         );
       }
     };
-    // --- ^^^^ นี่คือส่วนที่แก้ไข ^^^^ ---
 
     socket.on(eventName, handleDashboardUpdate);
 
-    // Cleanup function: หยุดฟัง event เมื่อ component ถูก unmount
     return () => {
       socket.off(eventName, handleDashboardUpdate);
     };
-  }, [socket]); // Dependency คือ socket เพื่อให้ useEffect นี้ทำงานใหม่เมื่อ socket พร้อมใช้งาน
+  }, [socket]);
 
-  // ... (ส่วนของ functions getStatusColor, OEECard, และ JSX ทั้งหมดเหมือนเดิม ไม่ต้องแก้ไข) ...
   const getStatusColor = (status: string) => {
     switch (status) {
       case "running":
@@ -179,7 +167,6 @@ export default function App() {
     router.push(`/dashboard/oee/${oeeId}`);
   };
 
-  // ... (Component: OEECard) ...
   const OEECard = ({ data }: { data: OEEData }) => (
     <Card
       sx={{
