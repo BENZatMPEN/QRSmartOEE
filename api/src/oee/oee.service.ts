@@ -26,6 +26,8 @@ import { PaginationResponse } from '../common/interfaces/pagination-response.int
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { CreateQrProductDto } from './dto/create-qr-product.dto';
 import { UpdateQrProductDto } from './dto/update-qr-product.dto';
+import type { BarcodePayload } from '../common/interfaces/barcode-payload.interface';
+import { TcpClientService } from '../tcp-client/tcp-client.service';
 
 @Injectable()
 export class OeeService {
@@ -39,6 +41,7 @@ export class OeeService {
     private readonly dataSource: DataSource,
     private readonly qrUpdatesGateway: QrUpdatesGateway,
     private readonly configService: ConfigService,
+    private readonly tcpClientService: TcpClientService,
   ) {}
   // --- CREATE ---
   async create(createOeeDto: CreateOeeDto): Promise<Oee> {
@@ -55,6 +58,12 @@ export class OeeService {
     return this.dataSource.transaction(async (transactionalEntityManager) => {
       const oee = this.oeeRepository.create(oeeData);
       const savedOee = await transactionalEntityManager.save(oee);
+      if (savedOee.tcpIp && savedOee.port) {
+        this.logger.log(
+          `New OEE created (ID: ${savedOee.id}), creating TCP connection...`,
+        );
+        this.tcpClientService.createConnection(savedOee);
+      }
 
       const result = await transactionalEntityManager.findOne(Oee, {
         where: { id: savedOee.id },
@@ -103,6 +112,18 @@ export class OeeService {
 
       if (!updatedOee) {
         throw new NotFoundException(`Updated OEE with ID #${id} not found`);
+      }
+
+      if (updatedOee.tcpIp && updatedOee.port) {
+        this.logger.log(
+          `OEE updated (ID: ${updatedOee.id}), re-initializing TCP connection...`,
+        );
+        this.tcpClientService.createConnection(updatedOee);
+      } else {
+        this.logger.log(
+          `OEE updated (ID: ${updatedOee.id}), TCP config removed. Removing connection...`,
+        );
+        this.tcpClientService.removeConnection(id);
       }
 
       return updatedOee;
@@ -243,23 +264,24 @@ export class OeeService {
   }
 
   @OnEvent('barcode.scanned')
-  async handleBarcodeScannedEvent(payload: { text: string }) {
+  async handleBarcodeScannedEvent(payload: BarcodePayload) {
     const siteCode = this.configService.get<string>('SITE_ID') ?? '1';
-    const qrText = payload.text;
-    this.logger.log(`Processing new QR: ${qrText}`);
+
+    const { siteId, oeeId, masterOeeId, text: qrText } = payload;
+
+    this.logger.log(`Processing new QR: ${qrText} from OEE ${masterOeeId}`);
 
     try {
-      // ✨ --- 1. ตรวจสอบ QR ประเภท START/STOP ก่อน --- ✨
       const isStartQr = qrText.toLowerCase().startsWith('start_');
       const isStopQr = qrText.toLowerCase().startsWith('stop_');
 
       if (isStartQr || isStopQr) {
         const type = isStartQr ? 'START' : 'STOP';
-        // ค้นหา Oee ที่มี format ตรงกับ QR ที่สแกนเข้ามา
         const foundOee = await this.oeeRepository.findOne({
-          where: isStartQr
-            ? { qrStartFormat: qrText }
-            : { qrStopFormat: qrText },
+          where: {
+            masterOeeId: masterOeeId, // ตรวจสอบ OEE ที่ส่ง QR มา
+            [isStartQr ? 'qrStartFormat' : 'qrStopFormat']: qrText, // Format ต้องตรงกัน
+          },
         });
 
         if (foundOee) {
@@ -272,39 +294,42 @@ export class OeeService {
             siteId: foundOee.siteId,
             scannedText: qrText,
             type: type, // 'START' or 'STOP'
-            productInfo: null, // ไม่มีข้อมูล Product สำหรับ QR ประเภทนี้
+            productInfo: null,
             timestamp: new Date().toISOString(),
           };
-          // ส่งข้อมูลไปยังห้องที่ตรงกับ siteId และ oeeId
           this.qrUpdatesGateway.sendQrUpdate(
-            foundOee.siteId.toString(),
-            foundOee.masterOeeId,
+            siteId.toString(),
+            masterOeeId,
             dataToSend,
           );
         } else {
           this.logger.warn(
-            `⚠️ No OEE configuration found for ${type} QR: "${qrText}"`,
+            `⚠️ Mismatched ${type} QR: "${qrText}" from OEE ID ${masterOeeId}. Ignoring.`,
           );
-          // กรณีไม่เจอ ก็อาจจะส่งไปห้อง admin
           const notFoundData = {
             status: 'NOT_FOUND',
-            type: type,
+            oeeId: masterOeeId,
+            siteId: siteId,
             scannedText: qrText,
+            type: type,
             timestamp: new Date().toISOString(),
           };
-          this.qrUpdatesGateway.sendQrUpdate('admin', 0, notFoundData);
+          this.qrUpdatesGateway.sendQrUpdate(
+            siteId.toString(),
+            masterOeeId,
+            notFoundData,
+          );
         }
-        return; // จบการทำงาน
+        return;
       }
 
-      // ✨ --- 2. ตรวจสอบ QR ประเภท PD (เหมือนเดิม) --- ✨
       if (qrText.toUpperCase().startsWith('PD')) {
         this.logger.log(
           `PD code detected: "${qrText}". Treating as direct FOUND.`,
         );
         const dataToSend = {
           status: 'FOUND',
-          oeeId: 0,
+          oeeId: masterOeeId,
           siteId: parseInt(siteCode),
           scannedText: qrText,
           type: 'PD',
@@ -315,13 +340,19 @@ export class OeeService {
           },
           timestamp: new Date().toISOString(),
         };
-        this.qrUpdatesGateway.sendQrUpdate('admin', 0, dataToSend);
-        return; // จบการทำงาน
+        this.qrUpdatesGateway.sendQrUpdate(
+          siteId.toString(),
+          masterOeeId,
+          dataToSend,
+        );
+        return;
       }
 
-      // ✨ --- 3. Logic เดิมสำหรับ QR ทั่วไป (SKU) --- ✨
       const foundProduct = await this.qrProductRepo.findOne({
-        where: { qrFormatSku: qrText },
+        where: {
+          qrFormatSku: qrText,
+          oeeId: oeeId, // ค้นหา SKU ที่ผูกกับ OEE นี้เท่านั้น
+        },
         relations: ['oee'],
       });
 
@@ -343,19 +374,25 @@ export class OeeService {
           timestamp: new Date().toISOString(),
         };
         this.qrUpdatesGateway.sendQrUpdate(
-          foundProduct.oee.siteId.toString(),
-          foundProduct.oee.masterOeeId,
+          siteId.toString(),
+          masterOeeId,
           dataToSend,
         );
       } else {
-        this.logger.warn(`⚠️ No product match found for SKU: "${qrText}"`);
+        this.logger.warn(
+          `⚠️ No product match found for SKU: "${qrText}" on OEE ID ${masterOeeId}`,
+        );
         const notFoundData = {
           status: 'NOT_FOUND',
           type: 'SKU',
           scannedText: qrText,
           timestamp: new Date().toISOString(),
         };
-        this.qrUpdatesGateway.sendQrUpdate('admin', 0, notFoundData);
+        this.qrUpdatesGateway.sendQrUpdate(
+          siteId.toString(),
+          masterOeeId,
+          notFoundData,
+        );
       }
     } catch (error) {
       this.logger.error(`Error processing QR text: ${qrText}`, error.stack);

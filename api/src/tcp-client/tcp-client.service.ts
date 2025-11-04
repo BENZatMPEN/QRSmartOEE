@@ -4,119 +4,88 @@ import {
   OnModuleDestroy,
   Logger,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as net from 'net';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Not, IsNull } from 'typeorm';
+import { Oee } from '../oee/entities/oee.entity'; // (ต้อง import Oee entity)
+import { OeeTcpConnection } from './oee-tcp-connection';
 
 @Injectable()
 export class TcpClientService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TcpClientService.name);
-  private client: net.Socket;
-  private buffer = '';
 
-  // ✨ 1. เพิ่มตัวแปรสำหรับเก็บ Interval ID
-  private heartbeatInterval: NodeJS.Timeout | null = null;
+  // Map สำหรับเก็บการเชื่อมต่อทั้งหมด (Key คือ oeeId, Value คือ instance)
+  private connections = new Map<number, OeeTcpConnection>();
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    @InjectRepository(Oee)
+    private readonly oeeRepository: Repository<Oee>, // Inject Repo เพื่ออ่าน Config
   ) {}
 
-  onModuleInit() {
-    this.connect();
+  // เมื่อ Module เริ่มทำงาน
+  async onModuleInit() {
+    this.logger.log('🚀 Initializing TCP Connection Manager...');
+    await this.loadAllOeeConnections();
   }
 
-  // ✨ 2. เพิ่ม Lifecycle Hook สำหรับตอนปิดแอป
+  // เมื่อ Module ถูกทำลาย (แอปปิด)
   onModuleDestroy() {
-    this.logger.log('🛑 Stopping TCP client...');
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-    }
-    this.client.destroy(); // ปิดการเชื่อมต่อทันที
-  }
-
-  connect() {
-    const host =
-      this.configService.get<string>('TCP_SERVER_HOST') || '127.0.0.1';
-    const port = this.configService.get<number>('TCP_SERVER_PORT') || 5001;
-
-    this.logger.log(`Connecting to TCP Server at ${host}:${port}...`);
-
-    this.client = new net.Socket();
-
-    this.client.connect(port, host, () => {
-      this.logger.log('✅ TCP Client connected successfully!');
-
-      // ✨ 3. เริ่มส่ง Heartbeat หลังจากเชื่อมต่อสำเร็จ
-      this.startHeartbeat();
-    });
-
-    this.client.on('data', (data) => {
-      this.logger.debug(`📩 Raw data received: ${data.toString('hex')}`);
-      this.handleData(data);
-    });
-
-    this.client.on('error', (err) => {
-      this.logger.error('❌ TCP Connection Error:', err.message);
-      this.stopHeartbeat(); // หยุดส่งเมื่อเกิด error
-    });
-
-    this.client.on('close', () => {
-      this.logger.warn('⚠️ TCP Connection closed. Reconnecting in 5s...');
-      this.stopHeartbeat(); // ✨ 4. หยุดส่ง Heartbeat เมื่อการเชื่อมต่อถูกปิด
-      setTimeout(() => this.connect(), 5000);
+    this.logger.log('🛑 Shutting down all TCP connections...');
+    this.connections.forEach((connection) => {
+      connection.destroy();
     });
   }
 
-  // ✨ 5. สร้างฟังก์ชันสำหรับเริ่มและหยุด Heartbeat
-  private startHeartbeat() {
-    // ป้องกันการสร้าง interval ซ้ำซ้อน
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-    }
+  // โหลด Config จาก DB และสร้างการเชื่อมต่อ
+  private async loadAllOeeConnections() {
+    // 1. ค้นหา OEE ทั้งหมดที่มี Config TCP/IP
+    const oeesWithTcp = await this.oeeRepository.find({
+      where: {
+        tcpIp: Not(IsNull()),
+        port: Not(IsNull()),
+      },
+    });
 
-    this.heartbeatInterval = setInterval(() => {
-      // ข้อมูลที่จะส่ง (อาจจะเป็นข้อความเฉพาะ หรือแค่ CR+LF เพื่อ keep-alive)
-      const heartbeatMessage = 'PING\r\n';
-      if (this.client && !this.client.destroyed) {
-        this.client.write(heartbeatMessage);
-        // this.logger.log('❤️ Heartbeat sent');
-      }
-    }, 2000); // 2000 milliseconds = 2 seconds
-  }
+    this.logger.log(`Found ${oeesWithTcp.length} OEE(s) with TCP config.`);
 
-  private stopHeartbeat() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-      this.logger.log('💔 Heartbeat stopped');
+    // 2. วนลูปสร้างการเชื่อมต่อ
+    for (const oee of oeesWithTcp) {
+      this.createConnection(oee);
     }
   }
 
-  private handleData(data: Buffer) {
-    this.logger.debug(`🧩 Buffer before: "${this.buffer}"`);
-    this.logger.debug(`🧩 Incoming chunk: "${data.toString('utf8')}"`);
+  // (ฟังก์ชันนี้สามารถเรียกใช้จาก Service อื่นได้ เช่น เมื่อมีการอัปเดต Oee)
+  public createConnection(oee: Oee) {
+    // ✨ FIX: 1. ดึง connection มาเก็บในตัวแปร
+    const existingConnection = this.connections.get(oee.id);
 
-    this.buffer += data.toString('utf8');
+    // ✨ FIX: 2. ตรวจสอบว่า connection มีอยู่จริงหรือไม่ก่อนเรียกใช้
+    if (existingConnection) {
+      this.logger.log(
+        `Re-initializing connection for OEE ID: ${oee.masterOeeId}`,
+      );
+      existingConnection.destroy();
+    }
 
-    let crlfIndex;
-    while ((crlfIndex = this.buffer.indexOf('\r\n')) !== -1) {
-      const completeMessage = this.buffer.substring(0, crlfIndex);
-      this.buffer = this.buffer.substring(crlfIndex + 2);
+    // สร้าง Instance ใหม่
+    const connection = new OeeTcpConnection(oee, this.eventEmitter);
+    connection.connect();
 
-      this.logger.debug(`✅ Complete message: "${completeMessage}"`);
-      this.logger.debug(`🪣 Buffer remaining: "${this.buffer}"`);
+    // เก็บ Instance ไว้ใน Map
+    this.connections.set(oee.id, connection);
+  }
 
-      if (completeMessage) {
-        // ป้องกันไม่ให้ประมวลผลข้อความ PONG ที่อาจจะตอบกลับมา
-        if (completeMessage.trim().toUpperCase() === 'PONG') {
-          this.logger.log('❤️ Heartbeat response (PONG) received.');
-          return; // ไม่ต้อง emit event
-        }
+  // (ฟังก์ชันนี้สามารถเรียกใช้จาก Service อื่นได้ เช่น เมื่อมีการลบ Oee)
+  public removeConnection(oeeId: number) {
+    // ✨ FIX: 1. ดึง connection มาเก็บในตัวแปร
+    const connection = this.connections.get(oeeId);
 
-        this.logger.log(`📦 Received Barcode: ${completeMessage}`);
-        this.eventEmitter.emit('barcode.scanned', { text: completeMessage });
-      }
+    // ✨ FIX: 2. ตรวจสอบว่า connection มีอยู่จริงหรือไม่ก่อนเรียกใช้
+    if (connection) {
+      this.logger.log(`Removing connection for OEE ID: ${oeeId}`);
+      connection.destroy();
+      this.connections.delete(oeeId);
     }
   }
 }

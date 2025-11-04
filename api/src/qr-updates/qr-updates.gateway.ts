@@ -32,7 +32,7 @@ export class QrUpdatesGateway
   sendQrUpdate(site: string, oeeId: number, data: any) {
     const room = `site_${site}`;
     const eventName = `qr_update_${oeeId}`;
-
+    console.log(`Send room: ${room}, event: ${eventName}`);
     this.server.to(room).emit(eventName, data);
     this.logger.log(
       `Sent QR update to room [${room}] with event [${eventName}]: ${JSON.stringify(data)}`,
