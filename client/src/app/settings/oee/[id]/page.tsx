@@ -25,8 +25,6 @@ import {
   Save as SaveIcon,
   ErrorOutline as ErrorIcon,
 } from "@mui/icons-material";
-import { api_oee, api_qr } from "../../../lib/axios";
-import QrProductTable from "../../../components/setting/QrProductTable";
 import {
   OEEConfiguration,
   ProductSelectItem,
@@ -36,6 +34,8 @@ import { AxiosResponse } from "axios";
 import QRCsvUpdater, {
   QRProduct,
 } from "../../../components/setting/QRCsvUpdater";
+import { api_oee, api_qr } from "../../../lib/axios";
+import QrProductTable from "../../../components/setting/QrProductTable";
 
 export default function OEEConfigurationPage() {
   const router = useRouter();
