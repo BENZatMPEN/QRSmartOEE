@@ -37,6 +37,9 @@ export class QrProduct {
   @JoinColumn({ name: 'oeeId' })
   oee: Oee;
 
-  @Column({ name: 'oeeId', nullable: true })
-  oeeId: number | null;
+  @Column({ name: 'oeeId', nullable: false })
+  oeeId: number;
+
+  @Column({ name: 'masterOeeId', nullable: false })
+  masterOeeId: number;
 }

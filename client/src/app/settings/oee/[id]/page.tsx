@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   // --- MUI Components ---
@@ -19,102 +19,31 @@ import {
   Typography,
   CircularProgress,
   Alert,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  FormHelperText,
 } from "@mui/material";
 import {
-  Add as AddIcon,
   ArrowBack as ArrowBackIcon,
-  DeleteOutline as DeleteIcon,
   Save as SaveIcon,
   ErrorOutline as ErrorIcon,
 } from "@mui/icons-material";
 import { api_oee, api_qr } from "../../../lib/axios";
-
-// --- Interfaces ---
-interface OEEConfiguration {
-  id: string;
-  mcCode: string;
-  oeeName: string;
-  oeeId: string;
-  modbusAddressLock: string;
-  qrStartFormat: string;
-  qrStopFormat: string;
-  siteId: number;
-}
-interface QRProduct {
-  id: string;
-  qrFormatSku: string;
-  specialFactor: string;
-  productId: string;
-  productName: string;
-}
-interface ProductSelectItem {
-  id: string;
-  name: string;
-}
-interface FormErrors {
-  modbusAddressLock?: string;
-  qrStartFormat?: string;
-  qrStopFormat?: string;
-  qrProducts?: {
-    [index: number]: { qrFormatSku?: string; productId?: string };
-  };
-}
-
-const FormField = ({
-  label,
-  className,
-  ...props
-}: {
-  label: string;
-  className?: string;
-  [key: string]: any;
-}) => (
-  <div className={className}>
-    <TextField
-      label={label}
-      size="small"
-      fullWidth
-      variant="outlined"
-      {...props}
-      value={props.value ?? ""}
-      sx={{
-        "& .MuiOutlinedInput-root": {
-          backgroundColor: props.disabled
-            ? "#eff6ff"
-            : props.value
-            ? "white"
-            : "#f8fafc",
-          "&:hover fieldset": {
-            borderColor: props.disabled ? "transparent" : "primary.main",
-          },
-        },
-      }}
-    />
-  </div>
-);
+import QrProductTable from "../../../components/setting/QrProductTable";
+import {
+  OEEConfiguration,
+  ProductSelectItem,
+  FormErrors,
+} from "../../../interfaces/oee-config.interfaces";
+import { AxiosResponse } from "axios";
+import QRCsvUpdater, {
+  QRProduct,
+} from "../../../components/setting/QRCsvUpdater";
 
 export default function OEEConfigurationPage() {
   const router = useRouter();
   const params = useParams();
-  const oeeIdFromUrl = params.id as string;
+  const oeeIdFromUrl = params.id as string; // นี่คือ Master OEE ID (เช่น 41)
 
   // --- States ---
-  const [config, setConfig] = useState<OEEConfiguration>({
-    id: "",
-    mcCode: "",
-    oeeName: "",
-    oeeId: "",
-    modbusAddressLock: "",
-    qrStartFormat: "",
-    qrStopFormat: "",
-    siteId: 1,
-  });
-  const [qrProducts, setQrProducts] = useState<QRProduct[]>([]);
+  const [config, setConfig] = useState<OEEConfiguration | null>(null);
   const [productList, setProductList] = useState<ProductSelectItem[]>([]);
   const [existingQrConfigId, setExistingQrConfigId] = useState<string | null>(
     null
@@ -126,100 +55,110 @@ export default function OEEConfigurationPage() {
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
-  // ✨ 1. เพิ่ม State เพื่อติดตามว่าเคยกด Submit แล้วหรือยัง
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
-  useEffect(() => {
-    // ... (ส่วน useEffect ไม่มีการเปลี่ยนแปลง)
+  const fetchData = useCallback(async () => {
     if (!oeeIdFromUrl) {
       setError("OEE ID not found in the URL.");
       setIsLoading(false);
       return;
     }
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
+    setIsLoading(true);
+    setError(null);
+    let oeeData: any = null;
+
+    try {
+      const oeeResult = await api_oee.get(`/oees/${oeeIdFromUrl}`, {
+        params: { siteId: 1 },
+      });
+      oeeData = oeeResult.data;
+      const availableProducts: ProductSelectItem[] =
+        oeeData.oeeProducts?.map((p: any) => ({
+          id: p.product.id.toString(),
+          name: p.product.name,
+        })) || [];
+      setProductList(availableProducts);
+
       try {
-        const oeePromise = api_oee.get(`/oees/${oeeIdFromUrl}`, {
-          params: { siteId: 1 },
+        const qrResult = await api_qr.get(`/oee/${oeeIdFromUrl}`);
+        const qrData = qrResult.data;
+        console.log("Retrieved QROEE config:", qrData);
+        setExistingQrConfigId(qrData.id.toString());
+        setConfig({
+          id: qrData.id.toString(), // DB ID
+          masterOeeId: qrData.masterOeeId,
+          mcCode: qrData.machineCode || "N/A",
+          oeeName: qrData.oeeName || "N/A",
+          modbusAddress: qrData.modbusAddress || 0,
+          qrStartFormat: qrData.qrStartFormat || "",
+          qrStopFormat: qrData.qrStopFormat || "",
+          tcpIp: qrData.tcpIp || "",
+          port: qrData.port || 0,
+          siteId: qrData.siteId || 1,
         });
-        const qrPromise = api_qr.get(`/oee/${oeeIdFromUrl}`);
-        const [oeeResult, qrResult] = await Promise.allSettled([
-          oeePromise,
-          qrPromise,
-        ]);
-        if (oeeResult.status === "fulfilled") {
-          const oeeData = oeeResult.value.data;
-          setConfig((prev) => ({
-            ...(prev || {
-              modbusAddressLock: "",
+      } catch (qrError: any) {
+        try {
+          if (qrError.response && qrError.response.status === 404) {
+            console.log("No QROEE config found, creating a new one...");
+            setExistingQrConfigId(null);
+
+            const payload = {
+              masterOeeId: Number(oeeData.id),
+              machineCode: oeeData.oeeCode || "N/A",
+              oeeName: oeeData.productionName || "N/A",
+              siteId: 1,
               qrStartFormat: "",
               qrStopFormat: "",
-            }),
-            id: oeeData.id.toString(),
-            oeeName: oeeData.productionName || "N/A",
-            mcCode: oeeData.oeeCode || "N/A",
-            oeeId: oeeData.id.toString() || "N/A",
-          }));
-          const availableProducts: ProductSelectItem[] =
-            oeeData.oeeProducts?.map((p: any) => ({
-              id: p.product.id.toString(),
-              name: p.product.name,
-            })) || [];
-          setProductList(availableProducts);
-        } else {
-          throw new Error("Failed to fetch essential OEE data.");
-        }
-        if (qrResult.status === "fulfilled" && qrResult.value.data) {
-          const qrData = qrResult.value.data;
-          if (qrData.id) {
-            setExistingQrConfigId(qrData.id.toString());
+              modbusAddress: 0,
+              tcpIp: "",
+              port: 0,
+            };
+
+            const createResponse = await api_qr.post("/oee", payload);
+            const newQrData = createResponse.data;
+            console.log("Created new QROEE config:", newQrData);
+
+            setExistingQrConfigId(newQrData.id.toString());
+            setConfig({
+              id: newQrData?.id.toString(),
+              masterOeeId: newQrData?.masterOeeId,
+              mcCode: newQrData?.machineCode,
+              oeeName: newQrData?.oeeName,
+              modbusAddress: newQrData?.modbusAddress,
+              qrStartFormat: newQrData?.qrStartFormat,
+              qrStopFormat: newQrData?.qrStopFormat,
+              tcpIp: newQrData?.tcpIp,
+              port: newQrData?.port,
+              siteId: newQrData?.siteId,
+            });
           } else {
-            setExistingQrConfigId(null);
+            window.location.reload();
           }
-          setConfig((prev) => ({
-            ...prev!,
-            modbusAddressLock: qrData.modbusAddress || "",
-            qrStartFormat: qrData.qrStartFormat || "",
-            qrStopFormat: qrData.qrStopFormat || "",
-          }));
-          const fetchedQRProducts: QRProduct[] =
-            qrData.qrProducts?.map((p: any) => ({
-              id: p.id.toString(),
-              qrFormatSku: p.qrFormatSku || "",
-              specialFactor: p.specialFactor || "1.0000",
-              productId: p.productId.toString() || "",
-              productName: p.productName || "",
-            })) || [];
-          fetchedQRProducts.sort((a, b) => parseInt(a.id) - parseInt(b.id));
-          setQrProducts(fetchedQRProducts);
-        } else {
-          setConfig((prev) => ({
-            ...prev!,
-            modbusAddressLock: "",
-            qrStartFormat: "",
-            qrStopFormat: "",
-          }));
-          setQrProducts([]);
+        } catch {
+          window.location.reload();
         }
-      } catch (err: any) {
-        console.error("Failed to fetch configuration:", err);
-        setError(
-          err.message || "Failed to load configuration. Please try again."
-        );
-      } finally {
-        setIsLoading(false);
       }
-    };
-    fetchData();
+    } catch (err: any) {
+      console.error("Failed to fetch configuration:", err);
+      setError(
+        err.message || "Failed to load configuration. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }, [oeeIdFromUrl]);
 
-  const validateForm = (): boolean => {
-    const errors: FormErrors = { qrProducts: {} };
-    let isValid = true;
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-    if (!config.modbusAddressLock.trim()) {
-      errors.modbusAddressLock = "Required";
+  const validateConfigFields = useCallback((): boolean => {
+    if (!config) return false;
+    const errors: FormErrors = {};
+    let isValid = true;
+    if (!config.modbusAddress) {
+      errors.modbusAddress = "Required";
       isValid = false;
     }
     if (!config.qrStartFormat.trim()) {
@@ -229,7 +168,6 @@ export default function OEEConfigurationPage() {
       errors.qrStartFormat = "Must start with START_";
       isValid = false;
     }
-
     if (!config.qrStopFormat.trim()) {
       errors.qrStopFormat = "Required";
       isValid = false;
@@ -237,49 +175,29 @@ export default function OEEConfigurationPage() {
       errors.qrStopFormat = "Must start with STOP_";
       isValid = false;
     }
-
-    qrProducts.forEach((product, index) => {
-      if (!product.qrFormatSku.trim()) {
-        if (!errors.qrProducts) errors.qrProducts = {};
-        errors.qrProducts[index] = {
-          ...errors.qrProducts?.[index],
-          qrFormatSku: "Required",
-        };
-        isValid = false;
-      }
-      if (!product.productId) {
-        if (!errors.qrProducts) errors.qrProducts = {};
-        errors.qrProducts[index] = {
-          ...errors.qrProducts?.[index],
-          productId: "Required",
-        };
-        isValid = false;
-      }
-    });
-
+    if (!config.tcpIp.trim()) {
+      errors.tcpIp = "Required";
+      isValid = false;
+    }
+    if (!config.port) {
+      errors.port = "Required";
+      isValid = false;
+    }
     setFormErrors(errors);
     return isValid;
-  };
+  }, [config]);
 
-  // ✨ 2. เพิ่ม useEffect เพื่อ re-validate หลังจาก submit ครั้งแรก
   useEffect(() => {
-    // ถ้ายังไม่เคยกด submit เลย ให้ข้ามไป
-    if (!isSubmitted) {
-      return;
-    }
-    // ถ้าเคยกดแล้ว ให้ validate ใหม่ทุกครั้งที่ข้อมูลเปลี่ยน
-    validateForm();
-  }, [config, qrProducts, isSubmitted]); // Dependency array
+    if (!isSubmitted) return;
+    validateConfigFields();
+  }, [config, isSubmitted, validateConfigFields]);
 
-  // --- Handlers ---
   const handleInputChange =
     (field: keyof OEEConfiguration) =>
     (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (!config) return;
       let value = event.target.value;
-
-      // ✨ UX Improvement: บังคับให้มี Prefix เสมอ
       if (field === "qrStartFormat" && !value.startsWith("START_")) {
-        // ดึงเฉพาะส่วนที่ผู้ใช้พิมพ์ตามหลัง Prefix
         const userInput = value.startsWith("START")
           ? value.substring(5)
           : value;
@@ -289,61 +207,14 @@ export default function OEEConfigurationPage() {
         const userInput = value.startsWith("STOP") ? value.substring(4) : value;
         value = "STOP_" + userInput;
       }
-
-      setConfig((prev) => ({ ...prev, [field]: value }));
+      setConfig((prev) => ({ ...prev!, [field]: value }));
     };
-
-  const handleQRInputChange =
-    (
-      index: number,
-      field: keyof Omit<QRProduct, "productId" | "productName" | "id">
-    ) =>
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const newProducts = [...qrProducts];
-      newProducts[index] = {
-        ...newProducts[index],
-        [field]: event.target.value,
-      };
-      setQrProducts(newProducts);
-    };
-
-  const handleProductSelectChange = (
-    qrIndex: number,
-    selectedProductId: string
-  ) => {
-    const selectedProduct = productList.find((p) => p.id === selectedProductId);
-    const newProducts = [...qrProducts];
-    newProducts[qrIndex] = {
-      ...newProducts[qrIndex],
-      productId: selectedProduct ? selectedProduct.id : "",
-      productName: selectedProduct ? selectedProduct.name : "",
-    };
-    setQrProducts(newProducts);
-  };
-
-  const handleAddNewQR = () => {
-    const newQR: QRProduct = {
-      id: `new-${Date.now()}`,
-      qrFormatSku: "",
-      specialFactor: "1.0000",
-      productId: "",
-      productName: "",
-    };
-    setQrProducts((prev) => [...prev, newQR]);
-  };
-
-  const handleDeleteQR = (idToDelete: string) => {
-    setQrProducts((prevProducts) =>
-      prevProducts.filter((qr) => qr.id !== idToDelete)
-    );
-  };
 
   const handleSave = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // ✨ 3. ตั้งค่า isSubmitted เป็น true เมื่อกด Save
     setIsSubmitted(true);
-
-    if (validateForm()) {
+    const isConfigValid = validateConfigFields();
+    if (isConfigValid) {
       setIsConfirmModalOpen(true);
     } else {
       console.log("Form validation failed.");
@@ -353,33 +224,23 @@ export default function OEEConfigurationPage() {
   const handleConfirmSave = async () => {
     setIsConfirmModalOpen(false);
     if (!config) return;
-
     setIsSaving(true);
     setError(null);
-
     const isUpdate = !!existingQrConfigId;
-    let response;
-
+    let response: AxiosResponse<any, any, {}>;
     try {
       const payload = {
         ...(!isUpdate && {
-          oeeId: Number(config.oeeId),
+          oeeId: Number(config.masterOeeId), // Master OEE ID
           machineCode: config.mcCode,
           oeeName: config.oeeName,
           siteId: config.siteId,
         }),
         qrStartFormat: config.qrStartFormat,
         qrStopFormat: config.qrStopFormat,
-        modbusAddress: config.modbusAddressLock,
-        qrProducts: qrProducts.map((qr) => ({
-          ...(qr.id && !qr.id.startsWith("new-")
-            ? { id: parseInt(qr.id) }
-            : {}),
-          productId: qr.productId,
-          productName: qr.productName,
-          qrFormatSku: qr.qrFormatSku,
-          specialFactor: parseFloat(qr.specialFactor) || 1.0,
-        })),
+        modbusAddress: Number(config.modbusAddress),
+        tcpIp: config.tcpIp,
+        port: Number(config.port),
       };
 
       if (isUpdate) {
@@ -392,7 +253,6 @@ export default function OEEConfigurationPage() {
       router.push("/settings");
     } catch (err: any) {
       console.error("Failed to save configuration:", err);
-      // ✨ 3. แก้ไข catch block ให้เปิด Error Modal แทน alert
       const apiErrorMessage =
         err.response?.data?.message || "An unknown error occurred.";
       setErrorMessage(`Failed to save configuration: ${apiErrorMessage}`);
@@ -401,7 +261,42 @@ export default function OEEConfigurationPage() {
       setIsSaving(false);
     }
   };
+  const handleUploadSuccess = () => {
+    console.log("CSV Upload successful, triggering table refetch...");
+    setRefetchTrigger((prevTrigger) => prevTrigger + 1);
+  };
+  if (isLoading) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (error || !config) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <Alert severity="error">
+          {error || "Failed to load configuration data."}
+        </Alert>
+      </Box>
+    );
+  }
 
+  // --- Render ---
   return (
     <Box className="min-h-screen bg-slate-100">
       <AppBar
@@ -443,21 +338,85 @@ export default function OEEConfigurationPage() {
 
       <form id="oee-config-form" onSubmit={handleSave}>
         <main className="p-4 md:p-6 space-y-6">
+          {/* --- OEE Detail Form --- */}
           <Paper elevation={0} variant="outlined" className="p-6 rounded-lg">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
-              <FormField label="OEE Name" value={config.oeeName} disabled />
-              <FormField label="M/C Code" value={config.mcCode} disabled />
-              <FormField label="OEE ID" value={config.oeeId} disabled />
-              <FormField
-                label="Modbus Address Lock"
-                value={config.modbusAddressLock}
-                onChange={handleInputChange("modbusAddressLock")}
-                error={!!formErrors.modbusAddressLock}
-                helperText={formErrors.modbusAddressLock}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4">
+              <TextField
+                label="OEE Name"
+                value={config.oeeName}
+                disabled
+                fullWidth
+                size="small"
+                variant="outlined"
+                InputProps={{ readOnly: true }}
+                sx={{
+                  "& .MuiInputBase-input[readOnly]": {
+                    backgroundColor: "#eff6ff",
+                  },
+                }}
+              />
+              <TextField
+                label="M/C Code"
+                value={config.mcCode}
+                disabled
+                fullWidth
+                size="small"
+                variant="outlined"
+                InputProps={{ readOnly: true }}
+                sx={{
+                  "& .MuiInputBase-input[readOnly]": {
+                    backgroundColor: "#eff6ff",
+                  },
+                }}
+              />
+              <TextField
+                label="OEE ID"
+                value={config.masterOeeId}
+                disabled
+                fullWidth
+                size="small"
+                variant="outlined"
+                InputProps={{ readOnly: true }}
+                sx={{
+                  "& .MuiInputBase-input[readOnly]": {
+                    backgroundColor: "#eff6ff",
+                  },
+                }}
+              />
+              <TextField
+                label="Modbus Address (Register)"
+                value={config.modbusAddress}
+                onChange={handleInputChange("modbusAddress")}
+                error={!!formErrors.modbusAddress}
+                helperText={formErrors.modbusAddress}
+                fullWidth
+                size="small"
+                variant="outlined"
+              />
+              <TextField
+                label="TCP/IP"
+                value={config.tcpIp}
+                onChange={handleInputChange("tcpIp")}
+                error={!!formErrors.tcpIp}
+                helperText={formErrors.tcpIp}
+                fullWidth
+                size="small"
+                variant="outlined"
+              />
+              <TextField
+                label="TCP/IP Port"
+                value={config.port}
+                onChange={handleInputChange("port")}
+                error={!!formErrors.port}
+                helperText={formErrors.port}
+                fullWidth
+                size="small"
+                variant="outlined"
               />
             </div>
           </Paper>
 
+          {/* --- QR Format Form --- */}
           <div className="grid grid-cols-1 gap-6">
             <Paper
               elevation={0}
@@ -484,120 +443,25 @@ export default function OEEConfigurationPage() {
               />
             </Paper>
           </div>
-
-          <Paper
-            elevation={0}
-            variant="outlined"
-            className="overflow-hidden rounded-lg"
-          >
-            <div className="flex items-center p-4">
-              <Typography className="grow font-extrabold text-slate-800 tracking-wide">
-                QR List / SKU
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={handleAddNewQR}
-                size="small"
-              >
-                New
-              </Button>
-            </div>
-            <div className="divide-y divide-slate-200">
-              <div className="hidden md:flex items-center p-2 px-4 gap-4 bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                <div className="w-20 text-center">No.</div>
-                <div className="flex-1">QR Text / SKU</div>
-                <div className="w-36">Special Factor</div>
-                <div className="w-48">Product Name</div>
-                <div className="w-24 text-center">Product ID</div>
-                <div className="w-12"></div>
-              </div>
-              {qrProducts.map((qr, index) => (
-                <div
-                  key={qr.id}
-                  className="grid grid-cols-2 md:flex items-center p-2 px-4 gap-4 hover:bg-slate-50 transition-colors"
-                >
-                  <div className="md:w-20 flex justify-center items-center h-full">
-                    <Typography
-                      variant="body2"
-                      className="font-semibold text-slate-600"
-                    >
-                      {index + 1}
-                    </Typography>
-                  </div>
-
-                  <FormField
-                    label=""
-                    className="flex-1"
-                    value={qr.qrFormatSku}
-                    onChange={handleQRInputChange(index, "qrFormatSku")}
-                    error={!!formErrors.qrProducts?.[index]?.qrFormatSku}
-                    helperText={formErrors.qrProducts?.[index]?.qrFormatSku}
-                  />
-
-                  <FormField
-                    label=""
-                    className="md:w-36"
-                    value={qr.specialFactor}
-                    onChange={handleQRInputChange(index, "specialFactor")}
-                  />
-
-                  <FormControl
-                    size="small"
-                    className="md:w-48"
-                    error={!!formErrors.qrProducts?.[index]?.productId}
-                  >
-                    <Select
-                      value={qr.productId}
-                      label=""
-                      onChange={(e) =>
-                        handleProductSelectChange(index, e.target.value)
-                      }
-                    >
-                      <MenuItem value="">
-                        <em>None</em>
-                      </MenuItem>
-                      {productList.map((product) => (
-                        <MenuItem key={product.id} value={product.id}>
-                          {product.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    {formErrors.qrProducts?.[index]?.productId && (
-                      <FormHelperText>
-                        {formErrors.qrProducts[index].productId}
-                      </FormHelperText>
-                    )}
-                  </FormControl>
-
-                  <div className="md:w-24 flex justify-center items-center h-full">
-                    <Typography variant="body2" className="text-slate-500">
-                      {qr.productId || "-"}
-                    </Typography>
-                  </div>
-                  <div className="md:w-12 flex justify-center items-end h-full">
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDeleteQR(qr.id)}
-                      title="Remove item"
-                      sx={{ color: "error.main" }}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </div>
-                </div>
-              ))}
-              {qrProducts.length === 0 && (
-                <div className="text-center p-8 text-slate-500">
-                  No QR items found. Click 'New' to add one.
-                </div>
-              )}
-            </div>
-          </Paper>
+          <div className="flex justify-end">
+            <QRCsvUpdater
+              oeeId={config.masterOeeId}
+              productList={productList}
+              onUploadSuccess={handleUploadSuccess}
+            />
+          </div>
+          {/* --- QrProductTable Component --- */}
+          <QrProductTable
+            // ส่ง "DB ID" (เช่น 8) ของ Config ไป
+            dbOeeId={Number(config.id)}
+            // ส่ง "Master OEE ID" (เช่น 41) ไป
+            masterOeeId={Number(config.masterOeeId)}
+            productList={productList}
+            refetchTrigger={refetchTrigger}
+          />
         </main>
       </form>
 
-      {/* --- Modals --- */}
       <Dialog
         open={isConfirmModalOpen}
         onClose={() => setIsConfirmModalOpen(false)}

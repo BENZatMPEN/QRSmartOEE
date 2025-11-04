@@ -13,6 +13,18 @@ import { QrProduct } from './entities/qr-product.entity';
 import { OnEvent } from '@nestjs/event-emitter';
 import { QrUpdatesGateway } from '../qr-updates/qr-updates.gateway';
 import { ConfigService } from '@nestjs/config';
+import {
+  CsvRow,
+  FailedRow,
+  ImportResult,
+} from '../common/interfaces/product-item.interface';
+import csvParser from 'csv-parser';
+import { createReadStream } from 'fs';
+import { ProductDto } from './dto/import-csv.dto';
+import { PaginationResponse } from '../common/interfaces/pagination-response.interface';
+import { PaginationQueryDto } from './dto/pagination-query.dto';
+import { CreateQrProductDto } from './dto/create-qr-product.dto';
+import { UpdateQrProductDto } from './dto/update-qr-product.dto';
 
 @Injectable()
 export class OeeService {
@@ -22,14 +34,14 @@ export class OeeService {
     @InjectRepository(Oee)
     private readonly oeeRepository: Repository<Oee>,
     @InjectRepository(QrProduct)
-    private readonly qrProductRepository: Repository<QrProduct>,
+    private readonly qrProductRepo: Repository<QrProduct>,
     private readonly dataSource: DataSource,
     private readonly qrUpdatesGateway: QrUpdatesGateway,
     private readonly configService: ConfigService,
   ) {}
   // --- CREATE ---
   async create(createOeeDto: CreateOeeDto): Promise<Oee> {
-    const { qrProducts, ...oeeData } = createOeeDto;
+    const { ...oeeData } = createOeeDto;
 
     if (oeeData.qrStartFormat) {
       oeeData.qrStartFormat = `${oeeData.qrStartFormat}`;
@@ -43,17 +55,8 @@ export class OeeService {
       const oee = this.oeeRepository.create(oeeData);
       const savedOee = await transactionalEntityManager.save(oee);
 
-      if (qrProducts && qrProducts.length > 0) {
-        const qrProductEntities = qrProducts.map((p) =>
-          this.qrProductRepository.create({ ...p, oee: savedOee }),
-        );
-        await transactionalEntityManager.save(qrProductEntities);
-      }
-
-      // ✨ FIX 2: เพิ่มการตรวจสอบ null
       const result = await transactionalEntityManager.findOne(Oee, {
         where: { id: savedOee.id },
-        relations: ['qrProducts'],
       });
 
       if (!result) {
@@ -66,7 +69,7 @@ export class OeeService {
   }
 
   async update(id: number, updateOeeDto: UpdateOeeDto): Promise<Oee> {
-    const { qrProducts, ...oeeData } = updateOeeDto;
+    const { ...oeeData } = updateOeeDto;
 
     if (oeeData.qrStartFormat) {
       oeeData.qrStartFormat = `${oeeData.qrStartFormat}`;
@@ -89,64 +92,12 @@ export class OeeService {
         throw new NotFoundException(`OEE with ID #${id} not found`);
       }
 
-      // 🧩 อัปเดต field หลักของ OEE
       oeeRepo.merge(existingOee, oeeData);
-
-      if (qrProducts) {
-        // ดึง id ทั้งหมดที่ส่งมา
-        const incomingIds = qrProducts.filter((p) => p.id).map((p) => p.id);
-
-        // ลบ product ที่ไม่มีใน DTO แล้ว
-        const toDelete = existingOee.qrProducts.filter(
-          (p) => !incomingIds.includes(p.id),
-        );
-        if (toDelete.length > 0) {
-          await qrProductRepo.remove(toDelete);
-        }
-
-        // เตรียมรายการอัปเดต/สร้างใหม่
-        const updatedQrProducts: QrProduct[] = [];
-
-        for (const dto of qrProducts) {
-          if (dto.id) {
-            // อัปเดตของเดิม
-            const existingQr = await qrProductRepo.findOne({
-              where: { id: dto.id },
-            });
-
-            if (existingQr) {
-              qrProductRepo.merge(existingQr, dto);
-              existingQr.oee = existingOee;
-              updatedQrProducts.push(existingQr);
-            } else {
-              // ถ้า id มีแต่หาไม่เจอ → สร้างใหม่
-              const newQr = qrProductRepo.create({
-                ...dto,
-                oee: existingOee,
-              });
-              updatedQrProducts.push(newQr);
-            }
-          } else {
-            // ไม่มี id → สร้างใหม่
-            const newQr = qrProductRepo.create({
-              ...dto,
-              oee: existingOee,
-            });
-            updatedQrProducts.push(newQr);
-          }
-        }
-
-        // save ทั้งหมด (TypeORM จะ update หรือ insert ตาม id)
-        await qrProductRepo.save(updatedQrProducts);
-        existingOee.qrProducts = updatedQrProducts;
-      }
 
       const saved = await oeeRepo.save(existingOee);
 
-      // โหลดกลับพร้อม relations เพื่อให้ response ครบ
       const updatedOee = await oeeRepo.findOne({
         where: { id: saved.id },
-        relations: ['qrProducts'],
       });
 
       if (!updatedOee) {
@@ -157,49 +108,104 @@ export class OeeService {
     });
   }
 
-  // ... (ส่วนที่เหลือของ service)
   findAll() {
     return this.oeeRepository.find({ relations: ['qrProducts'] });
   }
 
-  // in src/oee/oee.service.ts
-
   async findOne(id: number): Promise<Oee> {
-    // ✨ FIX: แก้ไขให้ค้นหาด้วย Primary Key 'id' แทน 'oeeId'
-    // เนื่องจาก Controller ของคุณมีการแปลง param 'id' เป็นตัวเลข (+id)
-    // ซึ่งตรงกับ Primary Key ของตาราง Oee
     const oee = await this.oeeRepository.findOne({
-      where: { oeeId: id },
+      where: { masterOeeId: id },
     });
 
     if (!oee) {
       throw new NotFoundException(`OEE with ID #${id} not found`);
     }
-
-    // // ✨ --- START: เพิ่ม Logic การลบ Prefix --- ✨
-    // // ตรวจสอบและลบ "start_" ออกจาก qrStartFormat
-    // if (oee.qrStartFormat && oee.qrStartFormat.startsWith('start_')) {
-    //   oee.qrStartFormat = oee.qrStartFormat.substring(6); // "start_".length คือ 6
-    // }
-
-    // // ตรวจสอบและลบ "stop_" ออกจาก qrStopFormat
-    // if (oee.qrStopFormat && oee.qrStopFormat.startsWith('stop_')) {
-    //   oee.qrStopFormat = oee.qrStopFormat.substring(5); // "stop_".length คือ 5
-    // }
-    // // ✨ --- END: เพิ่ม Logic --- ✨
-
     return oee;
   }
 
-  async remove(id: number) {
-    const oee = await this.findOne(id); // ใช้ findOne เพื่อเช็คว่ามีข้อมูลจริงก่อนลบ
-    await this.oeeRepository.remove(oee);
+  async findQrProductsByOeeId(
+    oeeId: number,
+    paginationQuery: PaginationQueryDto,
+  ): Promise<PaginationResponse<QrProduct>> {
+    const oee = await this.oeeRepository.findOneBy({ id: oeeId });
+    if (!oee) {
+      throw new NotFoundException(`OEE with ID #${oeeId} not found`);
+    }
+
+    const { page = 1, limit = 10 } = paginationQuery;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await this.qrProductRepo.findAndCount({
+      where: {
+        oee: { id: oeeId },
+      },
+      take: limit,
+      skip: skip,
+      order: {
+        id: 'ASC',
+      },
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+  }
+
+  async createQRProduct(
+    createQrProductDto: CreateQrProductDto,
+  ): Promise<QrProduct> {
+    const { oeeId, ...qrProductData } = createQrProductDto;
+
+    const oee = await this.oeeRepository.findOneBy({ id: oeeId });
+    if (!oee) {
+      throw new NotFoundException(`OEE with ID #${oeeId} not found`);
+    }
+
+    const qrProduct = this.qrProductRepo.create({
+      ...qrProductData,
+      oee: oee,
+      oeeId: oeeId,
+    });
+
+    return this.qrProductRepo.save(qrProduct);
+  }
+
+  async updateQRProduct(
+    id: number,
+    updateQrProductDto: UpdateQrProductDto,
+  ): Promise<QrProduct> {
+    const qrProduct = await this.qrProductRepo.preload({
+      id: id,
+      ...updateQrProductDto,
+    });
+
+    if (!qrProduct) {
+      throw new NotFoundException(`QrProduct with ID #${id} not found`);
+    }
+
+    return this.qrProductRepo.save(qrProduct);
+  }
+
+  async deleteQRProduct(id: number) {
+    const qrProduct = await this.qrProductRepo.findOneBy({ id });
+    if (!qrProduct) {
+      throw new NotFoundException(`QrProduct with ID #${id} not found`);
+    }
+    await this.qrProductRepo.remove(qrProduct);
     return { deleted: true, id };
   }
 
-  // 3. สร้าง Listener สำหรับดักจับ Event จาก TCP Client
-
-  // in src/oee/oee.service.ts
+  async remove(id: number) {
+    const oee = await this.findOne(id);
+    await this.oeeRepository.remove(oee);
+    return { deleted: true, id };
+  }
 
   @OnEvent('barcode.scanned')
   async handleBarcodeScannedEvent(payload: { text: string }) {
@@ -223,11 +229,11 @@ export class OeeService {
 
         if (foundOee) {
           this.logger.log(
-            `✅ ${type} QR matched for OEE ID: ${foundOee.oeeId}`,
+            `✅ ${type} QR matched for OEE ID: ${foundOee.masterOeeId}`,
           );
           const dataToSend = {
             status: 'FOUND',
-            oeeId: foundOee.oeeId,
+            oeeId: foundOee.masterOeeId,
             siteId: foundOee.siteId,
             scannedText: qrText,
             type: type, // 'START' or 'STOP'
@@ -237,7 +243,7 @@ export class OeeService {
           // ส่งข้อมูลไปยังห้องที่ตรงกับ siteId และ oeeId
           this.qrUpdatesGateway.sendQrUpdate(
             foundOee.siteId.toString(),
-            foundOee.oeeId,
+            foundOee.masterOeeId,
             dataToSend,
           );
         } else {
@@ -279,18 +285,18 @@ export class OeeService {
       }
 
       // ✨ --- 3. Logic เดิมสำหรับ QR ทั่วไป (SKU) --- ✨
-      const foundProduct = await this.qrProductRepository.findOne({
+      const foundProduct = await this.qrProductRepo.findOne({
         where: { qrFormatSku: qrText },
         relations: ['oee'],
       });
 
       if (foundProduct && foundProduct.oee) {
         this.logger.log(
-          `✅ SKU Match found for ${qrText}: Product ID ${foundProduct.productId}, OEE ID ${foundProduct.oee.oeeId}`,
+          `✅ SKU Match found for ${qrText}: Product ID ${foundProduct.productId}, OEE ID ${foundProduct.oee.masterOeeId}`,
         );
         const dataToSend = {
           status: 'FOUND',
-          oeeId: foundProduct.oee.oeeId,
+          oeeId: foundProduct.oee.masterOeeId,
           siteId: foundProduct.oee.siteId,
           scannedText: qrText,
           type: 'SKU',
@@ -303,7 +309,7 @@ export class OeeService {
         };
         this.qrUpdatesGateway.sendQrUpdate(
           foundProduct.oee.siteId.toString(),
-          foundProduct.oee.oeeId,
+          foundProduct.oee.masterOeeId,
           dataToSend,
         );
       } else {
@@ -319,5 +325,106 @@ export class OeeService {
     } catch (error) {
       this.logger.error(`Error processing QR text: ${qrText}`, error.stack);
     }
+  }
+
+  async importFromCsv(
+    filePath: string,
+    productList: ProductDto[],
+    masterOeeId: number,
+  ): Promise<ImportResult> {
+    const failedRows: FailedRow[] = [];
+    const inserted: QrProduct[] = [];
+
+    const nameToIdMap: Map<string, string> = new Map(
+      productList.map((p) => [p.name.trim(), p.id]),
+    );
+
+    console.log(
+      `📥 [Import Start] file = ${filePath}, masterOeeId = ${masterOeeId}`,
+    );
+    console.debug(`📦 Product list: ${productList.length} items`);
+    console.debug(`🗺️ Mapped names = [${[...nameToIdMap.keys()].join(', ')}]`);
+    const oee = await this.oeeRepository.findOne({ where: { masterOeeId } });
+
+    if (!oee) {
+      throw new NotFoundException(
+        `OEE with masterOeeId #${masterOeeId} not found`,
+      );
+    }
+
+    return new Promise((resolve, reject) => {
+      const results: CsvRow[] = [];
+
+      createReadStream(filePath)
+        .pipe(
+          csvParser({
+            headers: ['qrFormatSku', 'specialFactor', 'productName'],
+            skipLines: 1,
+          }),
+        )
+        .on('data', (row: CsvRow) => {
+          console.debug(`📄 [Row Read]`, row);
+          results.push(row);
+        })
+        .on('end', async () => {
+          console.log(`📊 Total rows parsed: ${results.length}`);
+          for (const [index, row] of results.entries()) {
+            const trimmedProductName = row.productName?.trim();
+            const productId: string | undefined =
+              nameToIdMap.get(trimmedProductName);
+
+            if (!productId) {
+              console.warn(
+                `⚠️ [Row ${index}] Product name "${trimmedProductName}" not found in productList`,
+              );
+              failedRows.push({
+                index,
+                reason: 'Product name not matched',
+                row,
+              });
+              continue;
+            }
+
+            try {
+              const product: QrProduct = this.qrProductRepo.create({
+                qrFormatSku: row.qrFormatSku?.trim(),
+                specialFactor: parseFloat(row.specialFactor),
+                productId,
+                productName: trimmedProductName,
+                masterOeeId: masterOeeId,
+                oeeId: oee.id,
+              });
+
+              console.debug(`✅ [Row ${index}] Inserting QrProduct:`, product);
+
+              await this.qrProductRepo.save(product);
+              inserted.push(product);
+            } catch (err: any) {
+              console.error(`❌ [Row ${index}] Insert failed: ${err.message}`);
+              failedRows.push({
+                index,
+                reason: err.message,
+                row,
+              });
+            }
+          }
+
+          const result: ImportResult = {
+            successCount: inserted.length,
+            failCount: failedRows.length,
+            failedRows,
+          };
+
+          console.log(
+            `✅ [Import Done] success = ${result.successCount}, failed = ${result.failCount}`,
+          );
+
+          resolve(result);
+        })
+        .on('error', (err: Error) => {
+          console.error(`❌ [CSV Read Error] ${err.message}`);
+          reject(err);
+        });
+    });
   }
 }

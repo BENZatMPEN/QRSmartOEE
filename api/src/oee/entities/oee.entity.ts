@@ -16,7 +16,7 @@ export class Oee {
   id: number;
 
   @Column({ unique: true })
-  oeeId: number;
+  masterOeeId: number;
 
   @Column({ length: 255 })
   oeeName: string;
@@ -31,7 +31,13 @@ export class Oee {
   qrStopFormat: string;
 
   @Column({ nullable: true })
-  modbusAddress: string;
+  modbusAddress: number;
+
+  @Column({ nullable: true })
+  tcpIp: string;
+
+  @Column({ nullable: true })
+  port: number;
 
   @OneToMany(() => QrProduct, (qrProduct) => qrProduct.oee, {
     cascade: true,

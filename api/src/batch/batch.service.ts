@@ -92,8 +92,7 @@ export class BatchService {
         );
       }
 
-      // ✨ 5. แปลง Address เป็นตัวเลข
-      const registerAddress = parseInt(registerAddressString, 10);
+      const registerAddress = registerAddressString;
       if (isNaN(registerAddress)) {
         return reject(
           new Error(

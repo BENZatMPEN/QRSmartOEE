@@ -34,7 +34,7 @@ class QrProductDto {
 export class CreateOeeDto {
   @IsNumber()
   @IsNotEmpty()
-  oeeId: number;
+  masterOeeId: number;
 
   @IsString()
   @IsNotEmpty()
@@ -50,13 +50,14 @@ export class CreateOeeDto {
   @IsString()
   qrStopFormat: string;
 
-  @IsString()
-  modbusAddress: string; // ✨ หมายเหตุ: ใน Entity เป็น string
+  @IsNumber()
+  modbusAddress: number;
 
-  @IsArray()
-  @ValidateNested({ each: true }) // ตรวจสอบข้อมูลใน Array ทุกตัว
-  @Type(() => QrProductDto)
-  qrProducts: QrProductDto[];
+  @IsString()
+  tcpIp: string;
+
+  @IsNumber()
+  port: number;
 
   @IsNumber()
   siteId: number;
