@@ -394,7 +394,7 @@ export default function OEEConfigurationPage() {
                 variant="outlined"
               />
               <TextField
-                label="TCP/IP"
+                label="QR TCP/IP"
                 value={config.tcpIp}
                 onChange={handleInputChange("tcpIp")}
                 error={!!formErrors.tcpIp}
@@ -404,7 +404,7 @@ export default function OEEConfigurationPage() {
                 variant="outlined"
               />
               <TextField
-                label="TCP/IP Port"
+                label="QR TCP/IP Port"
                 value={config.port}
                 onChange={handleInputChange("port")}
                 error={!!formErrors.port}
