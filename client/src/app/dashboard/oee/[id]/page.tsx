@@ -51,7 +51,8 @@ interface OEEDetailData {
   pd: string;
   plannedQuantity: string;
   status: OEEStatus;
-  scanSource: ScanSource; // ✨ เพิ่ม ScanSource
+  scanSource: ScanSource;
+  productId?: string;
 }
 interface LastQrScanData {
   oeeId: number;
@@ -158,7 +159,8 @@ export default function OEEDetailPage() {
         id: batchData.id?.toString() || oeeId,
         name: configData.oeeName || `OEE ${oeeId} Production`, // 👈 ใช้ชื่อจาก Config
         status: status,
-        sku: status === "ended" ? "" : product?.sku || "N/A",
+        sku: status === "ended" ? "" : product?.name || "N/A",
+        productId: status === "ended" ? "" : product?.id?.toString() || "N/A",
         pd: status === "ended" ? "" : batchData.lotNumber || "N/A",
         plannedQuantity:
             status === "ended"
@@ -731,6 +733,21 @@ export default function OEEDetailPage() {
                     USB Scanner
                   </ToggleButton>
                 </ToggleButtonGroup>
+
+                {/* Conditional USB Input Field */}
+                {/*{oeeData.scanSource === 'USB' && (*/}
+                {/*    <TextField*/}
+                {/*        label="Scan QR (Press Enter)"*/}
+                {/*        variant="outlined"*/}
+                {/*        fullWidth*/}
+                {/*        value={usbScanInput}*/}
+                {/*        onChange={(e) => setUsbScanInput(e.target.value)}*/}
+                {/*        onKeyDown={handleUsbScan}*/}
+                {/*        autoFocus*/}
+                {/*        placeholder="Click here or scan anywhere..."*/}
+                {/*        sx={{ mt: 1 }}*/}
+                {/*    />*/}
+                {/*)}*/}
               </CardContent>
             </Paper>
             {/* --- Main OEE Detail Card --- */}
@@ -752,19 +769,42 @@ export default function OEEDetailPage() {
               </Box>
               <CardContent sx={{ p: 3 }}>
                 <Box component="form" className="flex flex-col gap-4">
-                  <TextField
-                      label="SKU"
-                      fullWidth
-                      value={oeeData.sku}
-                      variant="outlined"
-                      onChange={handleInputChange("sku")}
-                      InputProps={{ readOnly: !isFormEditable }}
-                      sx={{
-                        "& .MuiInputBase-input[readOnly]": {
-                          backgroundColor: "#f0f0f0",
-                        },
-                      }}
-                  />
+                  <Box sx={{ display: 'flex', gap: 2 }}>
+                    <TextField
+                        label="SKU"
+                        fullWidth
+                        value={oeeData.sku}
+                        variant="outlined"
+                        onChange={handleInputChange("sku")}
+                        InputProps={{ readOnly: !isFormEditable }}
+                        sx={{
+                          "& .MuiInputBase-input[readOnly]": {
+                            backgroundColor: "#f0f0f0",
+                          },
+                        }}
+                    />
+                    <TextField
+                        label="Product ID"
+                        value={oeeData.productId ?? "-"}
+                        variant="outlined"
+                        fullWidth
+                        InputProps={{
+                          readOnly: true,
+                          sx: {
+                            input: {
+                              textAlign: "center", // จัด text ให้อยู่ตรงกลางแนวนอน
+                            },
+                          },
+                        }}
+                        sx={{
+                          width: 120,
+                          "& .MuiInputBase-input": {
+                            backgroundColor: "#f0f0f0",
+                          },
+                        }}
+                    />
+                  </Box>
+
                   <TextField
                       label="Lot Number (PD)"
                       fullWidth
