@@ -9,6 +9,7 @@ export interface OEEConfiguration {
   siteId: number;
   tcpIp: string;
   port: number;
+  pdPrefixFormat: string;
 }
 
 export interface QRProduct {
@@ -32,4 +33,5 @@ export interface FormErrors {
   qrStopFormat?: string;
   tcpIp?: string;
   port?: string;
+  pdPrefixFormat?: string;
 }

@@ -96,6 +96,7 @@ export default function OEEConfigurationPage() {
           tcpIp: qrData.tcpIp || "",
           port: qrData.port || 0,
           siteId: qrData.siteId || 1,
+          pdPrefixFormat: qrData.pdPrefixFormat || "",
         });
       } catch (qrError: any) {
         try {
@@ -113,6 +114,7 @@ export default function OEEConfigurationPage() {
               modbusAddress: 0,
               tcpIp: "",
               port: 0,
+              pdPrefixFormat: "PD",
             };
 
             const createResponse = await api_qr.post("/oee", payload);
@@ -131,6 +133,7 @@ export default function OEEConfigurationPage() {
               tcpIp: newQrData?.tcpIp,
               port: newQrData?.port,
               siteId: newQrData?.siteId,
+              pdPrefixFormat: newQrData?.pdPrefixFormat || "",
             });
           } else {
             window.location.reload();
@@ -181,6 +184,10 @@ export default function OEEConfigurationPage() {
     }
     if (!config.port) {
       errors.port = "Required";
+      isValid = false;
+    }
+    if (!config.pdPrefixFormat.trim()) {
+      errors.pdPrefixFormat = "Required";
       isValid = false;
     }
     setFormErrors(errors);
@@ -241,6 +248,7 @@ export default function OEEConfigurationPage() {
         modbusAddress: Number(config.modbusAddress),
         tcpIp: config.tcpIp,
         port: Number(config.port),
+        pdPrefixFormat: config.pdPrefixFormat,
       };
 
       if (isUpdate) {
@@ -440,6 +448,15 @@ export default function OEEConfigurationPage() {
                 onChange={handleInputChange("qrStopFormat")}
                 error={!!formErrors.qrStopFormat}
                 helperText={formErrors.qrStopFormat}
+              />
+              <TextField
+                  label="PD Prefix Format"
+                  variant="outlined"
+                  fullWidth
+                  value={config.pdPrefixFormat}
+                  onChange={handleInputChange("pdPrefixFormat")}
+                  error={!!formErrors.pdPrefixFormat}
+                  helperText={formErrors.pdPrefixFormat}
               />
             </Paper>
           </div>

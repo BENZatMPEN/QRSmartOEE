@@ -28,6 +28,8 @@ import { CreateQrProductDto } from './dto/create-qr-product.dto';
 import { UpdateQrProductDto } from './dto/update-qr-product.dto';
 import type { BarcodePayload } from '../common/interfaces/barcode-payload.interface';
 import { TcpClientService } from '../tcp-client/tcp-client.service';
+import { UpdateScanSourceDto } from './dto/scan-source.dto';
+import { ScanUsbDto } from './dto/scan-usb.dto';
 
 @Injectable()
 export class OeeService {
@@ -91,7 +93,6 @@ export class OeeService {
 
     return this.dataSource.transaction(async (manager) => {
       const oeeRepo = manager.getRepository(Oee);
-      const qrProductRepo = manager.getRepository(QrProduct);
 
       const existingOee = await oeeRepo.findOne({
         where: { id },
@@ -266,8 +267,27 @@ export class OeeService {
   @OnEvent('barcode.scanned')
   async handleBarcodeScannedEvent(payload: BarcodePayload) {
     const siteCode = this.configService.get<string>('SITE_ID') ?? '1';
-
     const { siteId, oeeId, masterOeeId, text: qrText } = payload;
+    const oeeConfig = await this.oeeRepository.findOne({
+      where: { masterOeeId },
+    });
+
+    if (!oeeConfig) {
+      this.logger.warn(
+        `⚠️ OEE configuration with Master OEE ID #${masterOeeId} not found. Ignoring scanned QR: ${qrText}`,
+      );
+      return;
+    }
+
+    const expectedSource = oeeConfig.scanSource;
+    const actualMode = payload.mode;
+
+    if (expectedSource !== actualMode) {
+      this.logger.warn(
+        `⚠️ OEE ${masterOeeId} is set to ${expectedSource} scan source. Ignoring non-${expectedSource} scan: ${qrText}`,
+      );
+      return;
+    }
 
     this.logger.log(`Processing new QR: ${qrText} from OEE ${masterOeeId}`);
 
@@ -323,7 +343,7 @@ export class OeeService {
         return;
       }
 
-      if (qrText.toUpperCase().startsWith('PD')) {
+      if (qrText.toUpperCase().startsWith(oeeConfig?.pdPrefixFormat || 'PD')) {
         this.logger.log(
           `PD code detected: "${qrText}". Treating as direct FOUND.`,
         );
@@ -384,6 +404,8 @@ export class OeeService {
         );
         const notFoundData = {
           status: 'NOT_FOUND',
+          oeeId: masterOeeId,
+          siteId: siteId,
           type: 'SKU',
           scannedText: qrText,
           timestamp: new Date().toISOString(),
@@ -530,5 +552,60 @@ export class OeeService {
           reject(err);
         });
     });
+  }
+
+  async updateScanSourceByOeeId(
+    masterOeeId: number,
+    updateScanSourceDto: UpdateScanSourceDto,
+  ): Promise<Oee> {
+    this.logger.debug(
+      `🔄 updateScanSourceByOeeId(): Start updating OEE oeeId=${masterOeeId}`,
+    );
+    this.logger.debug(`📦 Payload: ${JSON.stringify(updateScanSourceDto)}`);
+
+    const oee = await this.oeeRepository.findOne({ where: { masterOeeId } });
+
+    if (!oee) {
+      this.logger.warn(`❌ OEE with oeeId=${masterOeeId} not found`);
+      throw new NotFoundException(`OEE with oeeId=${masterOeeId} not found`);
+    }
+
+    oee.scanSource = updateScanSourceDto.scanSource;
+
+    const updated = await this.oeeRepository.save(oee);
+
+    this.logger.debug(
+      `✅ Updated scanSource for oeeId=${masterOeeId} successfully`,
+    );
+    return updated;
+  }
+
+  async handleUsbScan(
+    scanUsbDto: ScanUsbDto,
+  ): Promise<{ status: string; message: string }> {
+    const { text, oeeId: masterOeeId } = scanUsbDto;
+    const oeeConfig = await this.oeeRepository.findOne({
+      where: { masterOeeId },
+    });
+
+    if (!oeeConfig) {
+      throw new NotFoundException(
+        `OEE configuration with Master OEE ID #${masterOeeId} not found.`,
+      );
+    }
+    const payload: BarcodePayload = {
+      siteId: oeeConfig.siteId,
+      oeeId: oeeConfig.id,
+      masterOeeId: oeeConfig.masterOeeId,
+      text: text,
+      mode: 'USB',
+    };
+
+    await this.handleBarcodeScannedEvent(payload);
+
+    return {
+      status: 'success',
+      message: `Scan processed for OEE ${masterOeeId} with text: ${text}`,
+    };
   }
 }

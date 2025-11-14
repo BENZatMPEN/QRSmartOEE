@@ -3,4 +3,5 @@ export interface BarcodePayload {
   oeeId: number;
   masterOeeId: number;
   text: string;
+  mode: string;
 }

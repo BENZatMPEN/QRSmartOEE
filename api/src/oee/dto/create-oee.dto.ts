@@ -61,4 +61,7 @@ export class CreateOeeDto {
 
   @IsNumber()
   siteId: number;
+
+  @IsString()
+  pdPrefixFormat: string;
 }

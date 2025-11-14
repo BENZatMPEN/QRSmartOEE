@@ -1,5 +1,3 @@
-// src/oee/entities/oee.entity.ts
-
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -38,6 +36,17 @@ export class Oee {
 
   @Column({ nullable: true })
   port: number;
+
+  @Column({
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+    default: 'TCP',
+  })
+  scanSource: string;
+
+  @Column({ default: 'PD' })
+  pdPrefixFormat: string;
 
   @OneToMany(() => QrProduct, (qrProduct) => qrProduct.oee, {
     cascade: true,

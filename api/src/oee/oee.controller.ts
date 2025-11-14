@@ -23,6 +23,8 @@ import { extname } from 'path';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { CreateQrProductDto } from './dto/create-qr-product.dto';
 import { UpdateQrProductDto } from './dto/update-qr-product.dto';
+import { UpdateScanSourceDto } from './dto/scan-source.dto';
+import { ScanUsbDto } from './dto/scan-usb.dto';
 
 @Controller('oee')
 @UseGuards(BasicAuthGuard)
@@ -107,5 +109,18 @@ export class OeeController {
       message: 'CSV imported',
       ...result,
     };
+  }
+
+  @Patch(':id/scan-source')
+  updateScanSource(
+    @Param('id') id: string,
+    @Body() updateScanSourceDto: UpdateScanSourceDto,
+  ) {
+    return this.oeeService.updateScanSourceByOeeId(+id, updateScanSourceDto);
+  }
+
+  @Post('scan-usb')
+  handleUsbScan(@Body() scanUsbDto: ScanUsbDto) {
+    return this.oeeService.handleUsbScan(scanUsbDto);
   }
 }

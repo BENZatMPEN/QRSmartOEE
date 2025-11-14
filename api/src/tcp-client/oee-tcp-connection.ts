@@ -108,6 +108,7 @@ export class OeeTcpConnection {
           oeeId: this.oeeConfig.id,
           masterOeeId: this.oeeConfig.masterOeeId,
           text: completeMessage,
+          mode: 'TCP',
         });
       }
     }
