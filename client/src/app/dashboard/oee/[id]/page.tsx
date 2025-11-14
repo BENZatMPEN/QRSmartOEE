@@ -557,10 +557,7 @@ export default function OEEDetailPage() {
     const handleGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
       // --- Filters ---
       if (!oeeData) return;
-      const isEnded =
-          oeeData.status === "ended" || oeeData.status === "no plan";
-
-      if (!isEnded || oeeData.scanSource !== "USB") {
+      if (oeeData.scanSource !== "USB") {
         return;
       }
       if (
@@ -591,7 +588,7 @@ export default function OEEDetailPage() {
       setScanTimer(
           setTimeout(() => {
             setGlobalScanBuffer("");
-          }, 50)
+          }, 100)
       );
     };
 
