@@ -123,12 +123,15 @@ export default function QRCsvUpdater({
 
   return (
     <>
-      <Paper className="p-6 space-y-4" variant="outlined">
-        <Typography variant="h6" className="font-bold text-slate-700">
+      <Paper className="p-8 space-y-4 " variant="outlined">
+        <Typography
+          variant="h6"
+          className="font-bold text-slate-700 flex justify-center items-center"
+        >
           Update QR Product Data via CSV
         </Typography>
 
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap gap-4 justify-center items-center">
           <Button
             variant="outlined"
             color="primary"

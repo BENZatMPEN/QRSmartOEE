@@ -36,6 +36,9 @@ import QRCsvUpdater, {
 } from "../../../components/setting/QRCsvUpdater";
 import { api_oee, api_qr } from "../../../lib/axios";
 import QrProductTable from "../../../components/setting/QrProductTable";
+import ScanModeToggle from "@/app/components/setting/ScanModeToggle";
+
+type ScanSource = "TCP" | "USB";
 
 export default function OEEConfigurationPage() {
   const router = useRouter();
@@ -97,6 +100,7 @@ export default function OEEConfigurationPage() {
           port: qrData.port || 0,
           siteId: qrData.siteId || 1,
           pdPrefixFormat: qrData.pdPrefixFormat || "",
+          scanSource: qrData?.scanSource || "TCP",
         });
       } catch (qrError: any) {
         try {
@@ -134,6 +138,7 @@ export default function OEEConfigurationPage() {
               port: newQrData?.port,
               siteId: newQrData?.siteId,
               pdPrefixFormat: newQrData?.pdPrefixFormat || "",
+              scanSource: newQrData?.scanSource || "N/A",
             });
           } else {
             window.location.reload();
@@ -160,10 +165,12 @@ export default function OEEConfigurationPage() {
     if (!config) return false;
     const errors: FormErrors = {};
     let isValid = true;
+
     if (!config.modbusAddress) {
       errors.modbusAddress = "Required";
       isValid = false;
     }
+
     if (!config.qrStartFormat.trim()) {
       errors.qrStartFormat = "Required";
       isValid = false;
@@ -171,6 +178,7 @@ export default function OEEConfigurationPage() {
       errors.qrStartFormat = "Must start with START_";
       isValid = false;
     }
+
     if (!config.qrStopFormat.trim()) {
       errors.qrStopFormat = "Required";
       isValid = false;
@@ -178,18 +186,23 @@ export default function OEEConfigurationPage() {
       errors.qrStopFormat = "Must start with STOP_";
       isValid = false;
     }
-    if (!config.tcpIp.trim()) {
-      errors.tcpIp = "Required";
-      isValid = false;
+
+    if (config.scanSource === "TCP") {
+      if (!config.tcpIp.trim()) {
+        errors.tcpIp = "Required";
+        isValid = false;
+      }
+      if (!config.port) {
+        errors.port = "Required";
+        isValid = false;
+      }
     }
-    if (!config.port) {
-      errors.port = "Required";
-      isValid = false;
-    }
+
     if (!config.pdPrefixFormat.trim()) {
       errors.pdPrefixFormat = "Required";
       isValid = false;
     }
+
     setFormErrors(errors);
     return isValid;
   }, [config]);
@@ -228,13 +241,44 @@ export default function OEEConfigurationPage() {
     }
   };
 
+  const handleScanSourceChange = (
+    event: React.MouseEvent<HTMLElement>,
+    newSource: ScanSource | null
+  ) => {
+    if (newSource && newSource !== config?.scanSource) {
+      console.log(`[Debug] Scan source changed to: ${newSource}`);
+
+      // ✔️ อัปเดต state ก่อน
+      setConfig((prev) =>
+        prev
+          ? {
+              ...prev,
+              scanSource: newSource,
+            }
+          : null
+      );
+
+      // ✔️ ส่ง API ไปอัปเดต backend
+      api_qr
+        .patch(`/oee/${config?.masterOeeId}/scan-source`, {
+          scanSource: newSource,
+        })
+        .then(() => {
+          console.log("[Debug] Scan source saved to server.");
+        })
+        .catch((err) => {
+          console.error("[Debug] Failed to save scan source:", err);
+        });
+    }
+  };
+
   const handleConfirmSave = async () => {
     setIsConfirmModalOpen(false);
     if (!config) return;
     setIsSaving(true);
     setError(null);
     const isUpdate = !!existingQrConfigId;
-    let response: AxiosResponse<any, any, {}>;
+    let response: AxiosResponse;
     try {
       const payload = {
         ...(!isUpdate && {
@@ -410,6 +454,12 @@ export default function OEEConfigurationPage() {
                 fullWidth
                 size="small"
                 variant="outlined"
+                disabled={config.scanSource === "USB"}
+                sx={{
+                  "& .MuiInputBase-root.Mui-disabled": {
+                    backgroundColor: "#eff6ff",
+                  },
+                }}
               />
               <TextField
                 label="QR TCP/IP Port"
@@ -420,6 +470,12 @@ export default function OEEConfigurationPage() {
                 fullWidth
                 size="small"
                 variant="outlined"
+                disabled={config.scanSource === "USB"}
+                sx={{
+                  "& .MuiInputBase-root.Mui-disabled": {
+                    backgroundColor: "#eff6ff",
+                  },
+                }}
               />
             </div>
           </Paper>
@@ -450,23 +506,33 @@ export default function OEEConfigurationPage() {
                 helperText={formErrors.qrStopFormat}
               />
               <TextField
-                  label="PD Prefix Format"
-                  variant="outlined"
-                  fullWidth
-                  value={config.pdPrefixFormat}
-                  onChange={handleInputChange("pdPrefixFormat")}
-                  error={!!formErrors.pdPrefixFormat}
-                  helperText={formErrors.pdPrefixFormat}
+                label="PD Prefix Format"
+                variant="outlined"
+                fullWidth
+                value={config.pdPrefixFormat}
+                onChange={handleInputChange("pdPrefixFormat")}
+                error={!!formErrors.pdPrefixFormat}
+                helperText={formErrors.pdPrefixFormat}
               />
             </Paper>
           </div>
-          <div className="flex justify-end">
-            <QRCsvUpdater
-              oeeId={config.masterOeeId}
-              productList={productList}
-              onUploadSuccess={handleUploadSuccess}
-            />
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="w-full md:w-1/2">
+              <ScanModeToggle
+                scanSource={config.scanSource}
+                onScanSourceChange={handleScanSourceChange}
+              />
+            </div>
+
+            <div className="w-full md:w-1/2">
+              <QRCsvUpdater
+                oeeId={config.masterOeeId}
+                productList={productList}
+                onUploadSuccess={handleUploadSuccess}
+              />
+            </div>
           </div>
+
           {/* --- QrProductTable Component --- */}
           <QrProductTable
             // ส่ง "DB ID" (เช่น 8) ของ Config ไป

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useState,
-  useEffect,
-  useCallback,
-  ChangeEvent,
-  KeyboardEvent,
-} from "react";
+import { useState, useEffect, useCallback, KeyboardEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Box,
@@ -26,14 +20,10 @@ import {
   DialogActions,
   Button,
   Alert,
-  ToggleButtonGroup,
-  ToggleButton,
 } from "@mui/material";
 import {
   ArrowBack as ArrowBackIcon,
   Error as ErrorIcon,
-  NetworkWifi as WebsocketIcon,
-  Usb as UsbIcon,
 } from "@mui/icons-material";
 import { api_oee, api_qr } from "../../../lib/axios"; // ✨ Import api_qr
 import useWebSocket from "../../../contexts/WebSocketContext";
@@ -54,6 +44,7 @@ interface OEEDetailData {
   scanSource: ScanSource;
   productId?: string;
 }
+
 interface LastQrScanData {
   oeeId: number;
   status: "FOUND" | "NOT_FOUND" | "ERROR";
@@ -65,6 +56,7 @@ interface LastQrScanData {
   };
   timestamp: string;
 }
+
 const capitalize = (s: string) => {
   if (!s) return "";
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -83,7 +75,7 @@ export default function OEEDetailPage() {
   const [alertMessage, setAlertMessage] = useState("");
   const [currentBatchId, setCurrentBatchId] = useState<number | null>(null);
   const [lastScannedProductId, setLastScannedProductId] = useState<
-      number | null
+    number | null
   >(null);
   const oeeId = params.id as string;
   const [usbScanInput, setUsbScanInput] = useState("");
@@ -108,7 +100,7 @@ export default function OEEDetailPage() {
       const batchPromise = api_oee.get(`/oees/${oeeId}/latest-batch`, {
         params: { siteId: 1 },
       });
-      const configPromise = api_qr.get(`/oee/${oeeId}`); // 👈 API ใหม่สำหรับ ScanSource
+      const configPromise = api_qr.get(`/oee/${oeeId}`);
 
       // 2. เรียก API พร้อมกัน
       const [batchResult, configResult] = await Promise.allSettled([
@@ -120,16 +112,16 @@ export default function OEEDetailPage() {
       let configData: any;
       if (configResult.status === "fulfilled" && configResult.value.data) {
         console.log(
-            "[Debug] fetchOeeDetail: Config API response received:",
-            configResult.value.data
+          "[Debug] fetchOeeDetail: Config API response received:",
+          configResult.value.data
         );
         configData = configResult.value.data;
       } else {
         console.error(
-            "[Debug] fetchOeeDetail: Config API Error:",
-            configResult.status === "rejected"
-                ? configResult.reason
-                : "No config data"
+          "[Debug] fetchOeeDetail: Config API Error:",
+          configResult.status === "rejected"
+            ? configResult.reason
+            : "No config data"
         );
         throw new Error("Failed to fetch essential OEE configuration.");
       }
@@ -139,8 +131,8 @@ export default function OEEDetailPage() {
       let product: any = null;
       if (batchResult.status === "fulfilled" && batchResult.value.data) {
         console.log(
-            "[Debug] fetchOeeDetail: Batch API response received:",
-            batchResult.value.data
+          "[Debug] fetchOeeDetail: Batch API response received:",
+          batchResult.value.data
         );
         batchData = batchResult.value.data;
         product = batchData.product;
@@ -148,7 +140,7 @@ export default function OEEDetailPage() {
         setLastScannedProductId(batchData.product?.id || null);
       } else {
         console.warn(
-            "[Debug] fetchOeeDetail: Could not fetch latest batch (This is OK for 'no plan')."
+          "[Debug] fetchOeeDetail: Could not fetch latest batch (This is OK for 'no plan')."
         );
         setCurrentBatchId(null);
       }
@@ -163,9 +155,9 @@ export default function OEEDetailPage() {
         productId: status === "ended" ? "" : product?.id?.toString() || "N/A",
         pd: status === "ended" ? "" : batchData.lotNumber || "N/A",
         plannedQuantity:
-            status === "ended"
-                ? "0"
-                : batchData.plannedQuantity?.toString() || "0",
+          status === "ended"
+            ? "0"
+            : batchData.plannedQuantity?.toString() || "0",
         // 👈 [GOAL] ใช้ scanSource จาก configData
         scanSource: configData.scanSource?.toUpperCase() || "TCP",
       };
@@ -206,27 +198,25 @@ export default function OEEDetailPage() {
       console.log("Raw stats:", stats);
       if (stats && Array.isArray(stats.oees)) {
         const currentOeeDataFromSocket = stats.oees.find(
-            (oee: any) => oee.id.toString() === oeeId
+          (oee: any) => oee.id.toString() === oeeId
         );
         if (currentOeeDataFromSocket) {
           const newStatus =
-              currentOeeDataFromSocket.batchStatus?.toLowerCase() || "no plan";
-          console.log(
-              `[TCP/IP] Found matching OEE. New status: ${newStatus}`
-          );
+            currentOeeDataFromSocket.batchStatus?.toLowerCase() || "no plan";
+          console.log(`[TCP/IP] Found matching OEE. New status: ${newStatus}`);
           setOeeData((prevData) => {
             if (!prevData) return null;
             return { ...prevData, status: newStatus };
           });
         } else {
           console.log(
-              `[TCP/IP] No matching OEE data found for ID ${oeeId} in this update.`
+            `[TCP/IP] No matching OEE data found for ID ${oeeId} in this update.`
           );
         }
       } else {
         console.warn(
-            "[TCP/IP] Received data with unexpected structure:",
-            stats
+          "[TCP/IP] Received data with unexpected structure:",
+          stats
         );
       }
       console.groupEnd();
@@ -242,214 +232,205 @@ export default function OEEDetailPage() {
 
   // --- WebSocket: QR Updates Logic (The "Brain") ---
   const handleQrUpdate = useCallback(
-      (data: LastQrScanData) => {
-        //
-        // [!!!] นี่คือ "สมอง" หลัก
-        // Logic ทั้งหมด (START, STOP, NOT_FOUND, อัปเดต SKU/PD)
-        // จะทำงานที่นี่ โดยรับข้อมูลที่ "validate แล้ว" จาก Server เท่านั้น
-        // (ไม่ต้องแก้ไขอะไรในนี้)
-        //
-        console.groupCollapsed(
-            `[handleQrUpdate] 📦 Received QR update: ${data.type} - ${data.status}`
+    (data: LastQrScanData) => {
+      console.groupCollapsed(
+        `[handleQrUpdate] 📦 Received QR update: ${data.type} - ${data.status}`
+      );
+      console.log("Raw data:", data);
+
+      // [GATEKEEPER]
+      if (data.oeeId !== Number(oeeId)) {
+        console.log(
+          `[handleQrUpdate] Ignoring event for oeeId ${data.oeeId} (this page is ${oeeId})`
         );
-        console.log("Raw data:", data);
+        console.groupEnd();
+        return;
+      }
 
-        // [GATEKEEPER]
-        if (data.oeeId !== Number(oeeId)) {
+      let displayText = data.scannedText;
+      if (data.type === "START" && displayText.startsWith("start_"))
+        displayText = displayText.substring(6);
+      if (data.type === "STOP" && displayText.startsWith("stop_"))
+        displayText = displayText.substring(5);
+
+      console.log("Cleaned text:", displayText);
+
+      if (
+        data.type === "SKU" &&
+        data.status === "FOUND" &&
+        data.productInfo?.productId
+      ) {
+        console.log(
+          `[handleQrUpdate] Setting LastScannedProductId: ${data.productInfo.productId}`
+        );
+        setLastScannedProductId(parseInt(data.productInfo.productId));
+      }
+
+      setOeeData((currentOeeData) => {
+        if (!currentOeeData) {
           console.log(
-              `[handleQrUpdate] Ignoring event for oeeId ${data.oeeId} (this page is ${oeeId})`
+            "[handleQrUpdate] Skipping state update, currentOeeData is null."
           );
           console.groupEnd();
-          return;
+          return null;
         }
 
-        let displayText = data.scannedText;
-        if (data.type === "START" && displayText.startsWith("start_"))
-          displayText = displayText.substring(6);
-        if (data.type === "STOP" && displayText.startsWith("stop_"))
-          displayText = displayText.substring(5);
+        const currentStatus = currentOeeData.status;
+        const isEnded =
+          currentStatus === "ended" || currentStatus === "no plan";
 
-        console.log("Cleaned text:", displayText);
+        console.log(
+          `[handleQrUpdate] Current Status: ${currentStatus} (isEnded: ${isEnded})`
+        );
 
-        if (
-            data.type === "SKU" &&
-            data.status === "FOUND" &&
-            data.productInfo?.productId
-        ) {
-          console.log(
-              `[handleQrUpdate] Setting LastScannedProductId: ${data.productInfo.productId}`
-          );
-          setLastScannedProductId(parseInt(data.productInfo.productId));
-        }
-
-        setOeeData((currentOeeData) => {
-          if (!currentOeeData) {
-            console.log(
-                "[handleQrUpdate] Skipping state update, currentOeeData is null."
-            );
-            console.groupEnd();
-            return null;
-          }
-
-          const currentStatus = currentOeeData.status;
-          const isEnded =
-              currentStatus === "ended" || currentStatus === "no plan";
-
-          console.log(
-              `[handleQrUpdate] Current Status: ${currentStatus} (isEnded: ${isEnded})`
-          );
-
-          // CASE 1: Machine is ENDED
-          if (isEnded) {
-            console.log("[handleQrUpdate] Logic path: Machine is ENDED.");
-            if (data.status === "FOUND") {
-              console.log(`[handleQrUpdate] ENDED path, type: ${data.type}`);
-              switch (data.type) {
-                case "START":
-                  console.log("Attempting to start batch...");
-                  if (!lastScannedProductId) {
-                    showAlert("Please scan a valid product SKU before starting.");
-                    return currentOeeData;
-                  }
-                  if (!currentOeeData.pd) {
-                    showAlert("Lot Number (PD) is required before starting.");
-                    return currentOeeData;
-                  }
-                  const plannedQty = parseInt(
-                      currentOeeData.plannedQuantity,
-                      10
+        // CASE 1: Machine is ENDED
+        if (isEnded) {
+          console.log("[handleQrUpdate] Logic path: Machine is ENDED.");
+          if (data.status === "FOUND") {
+            console.log(`[handleQrUpdate] ENDED path, type: ${data.type}`);
+            switch (data.type) {
+              case "START":
+                console.log("Attempting to start batch...");
+                if (!lastScannedProductId) {
+                  showAlert("Please scan a valid product SKU before starting.");
+                  return currentOeeData;
+                }
+                if (!currentOeeData.pd) {
+                  showAlert("Lot Number (PD) is required before starting.");
+                  return currentOeeData;
+                }
+                const plannedQty = parseInt(currentOeeData.plannedQuantity, 10);
+                if (isNaN(plannedQty) || plannedQty <= 0) {
+                  showAlert(
+                    "Planned Quantity must be a number greater than 0."
                   );
-                  if (isNaN(plannedQty) || plannedQty <= 0) {
-                    showAlert(
-                        "Planned Quantity must be a number greater than 0."
+                  return currentOeeData;
+                }
+
+                const startDate = new Date();
+                const endDate = new Date(
+                  startDate.getTime() + 24 * 60 * 60 * 1000
+                );
+                const payload = {
+                  plannedQuantity: plannedQty,
+                  productId: lastScannedProductId,
+                  oeeId: parseInt(oeeId),
+                  planningId: -1,
+                  lotNumber: currentOeeData.pd,
+                  startDate: startDate.toISOString(),
+                  endDate: endDate.toISOString(),
+                  startType: "MANUAL",
+                  endType: "MANUAL",
+                  operatorId: 0,
+                };
+
+                api_oee
+                  .post(`/oee-batches?siteId=1&oeeId=${oeeId}`, payload)
+                  .then((createResponse) => {
+                    const newBatchId = createResponse.data.id;
+                    if (!newBatchId)
+                      throw new Error(
+                        "API did not return a new batch ID after creation."
+                      );
+                    return api_oee.put(
+                      `/oee-batches/${newBatchId}/start?siteId=1&oeeId=${oeeId}`
                     );
-                    return currentOeeData;
-                  }
+                  })
+                  .then(() => {
+                    // showAlert("✅ Batch started successfully!"); // ✨ NOTI
+                    fetchOeeDetail();
+                  })
+                  .catch((error) => {
+                    console.error(
+                      "❌ Failed during start batch process:",
+                      error
+                    );
+                    showAlert(
+                      error.response?.data?.message || "Failed to start batch."
+                    );
+                  });
 
-                  const startDate = new Date();
-                  const endDate = new Date(
-                      startDate.getTime() + 24 * 60 * 60 * 1000
-                  );
-                  const payload = {
-                    plannedQuantity: plannedQty,
-                    productId: lastScannedProductId,
-                    oeeId: parseInt(oeeId),
-                    planningId: -1,
-                    lotNumber: currentOeeData.pd,
-                    startDate: startDate.toISOString(),
-                    endDate: endDate.toISOString(),
-                    startType: "MANUAL",
-                    endType: "MANUAL",
-                    operatorId: 0,
-                  };
+                return { ...currentOeeData, status: "unknown" };
 
-                  api_oee
-                      .post(`/oee-batches?siteId=1&oeeId=${oeeId}`, payload)
-                      .then((createResponse) => {
-                        const newBatchId = createResponse.data.id;
-                        if (!newBatchId)
-                          throw new Error(
-                              "API did not return a new batch ID after creation."
-                          );
-                        return api_oee.put(
-                            `/oee-batches/${newBatchId}/start?siteId=1&oeeId=${oeeId}`
-                        );
-                      })
-                      .then(() => {
-                        // showAlert("✅ Batch started successfully!"); // ✨ NOTI
-                        fetchOeeDetail();
-                      })
-                      .catch((error) => {
-                        console.error(
-                            "❌ Failed during start batch process:",
-                            error
-                        );
-                        showAlert(
-                            error.response?.data?.message || "Failed to start batch."
-                        );
-                      });
-
-                  return { ...currentOeeData, status: "unknown" };
-
-                case "STOP":
-                  showAlert(`Cannot stop batch. Please start a new batch first.`);
-                  break;
-                case "SKU":
-                  // showAlert(`SKU Found: ${data.productInfo!.productName}`); // ✨ NOTI
-                  return {
-                    ...currentOeeData,
-                    sku: data.productInfo!.productName,
-                  };
-                case "PD":
-                  // showAlert(`Lot Number Found: ${data.scannedText}`); // ✨ NOTI
-                  return { ...currentOeeData, pd: data.scannedText };
-              }
-            } else if (data.status === "NOT_FOUND") {
-              console.log(
-                  `[handleQrUpdate] ENDED path, status: NOT_FOUND, type: ${data.type}`
-              );
-              showAlert(
-                  `Invalid Scan (${data.type}): "${displayText}" not found.`
-              );
+              case "STOP":
+                showAlert(`Cannot stop batch. Please start a new batch first.`);
+                break;
+              case "SKU":
+                // showAlert(`SKU Found: ${data.productInfo!.productName}`); // ✨ NOTI
+                return {
+                  ...currentOeeData,
+                  sku: data.productInfo!.productName,
+                };
+              case "PD":
+                // showAlert(`Lot Number Found: ${data.scannedText}`); // ✨ NOTI
+                return { ...currentOeeData, pd: data.scannedText };
             }
-          }
-
-          // CASE 2: Machine is RUNNING
-          else {
+          } else if (data.status === "NOT_FOUND") {
             console.log(
-                "[handleQrUpdate] Logic path: Machine is RUNNING/BREAKDOWN."
+              `[handleQrUpdate] ENDED path, status: NOT_FOUND, type: ${data.type}`
             );
-            if (data.status === "FOUND") {
-              console.log(`[handleQrUpdate] RUNNING path, type: ${data.type}`);
-              switch (data.type) {
-                case "STOP":
-                  console.log("Attempting to stop batch...");
-                  if (!currentBatchId) {
-                    showAlert("Error: Cannot stop. Batch ID is missing.");
-                    return currentOeeData;
-                  }
-                  api_oee
-                      .put(
-                          `/oee-batches/${currentBatchId}/end?siteId=1&oeeId=${oeeId}`
-                      )
-                      .then(() => {
-                        // showAlert("✅ Batch stopped successfully!"); // ✨ NOTI
-                        fetchOeeDetail();
-                      })
-                      .catch((error) => {
-                        console.error("❌ Failed to end batch:", error);
-                        showAlert('Failed to send "end batch" command.');
-                      });
-                  break;
-                case "START":
-                  showAlert(`Cannot start. Batch is already ${currentStatus}.`);
-                  break;
-                case "SKU":
-                  showAlert(
-                      `Cannot scan new SKU. Batch is ${currentStatus}. Please stop first.`
-                  );
-                  break;
-                case "PD":
-                  showAlert(
-                      `Cannot scan new Lot Number. Batch is ${currentStatus}. Please stop first.`
-                  );
-                  break;
-              }
-            } else if (data.status === "NOT_FOUND") {
-              console.log(
-                  `[handleQrUpdate] RUNNING path, status: NOT_FOUND, type: ${data.type}`
-              );
-              showAlert(
-                  `Invalid Scan (${data.type}): "${displayText}" not found.`
-              );
-            }
+            showAlert(
+              `Invalid Scan (${data.type}): "${displayText}" not found.`
+            );
           }
+        }
 
-          console.groupEnd();
-          return currentOeeData;
-        });
-      },
-      [oeeId, fetchOeeDetail, currentBatchId, lastScannedProductId]
+        // CASE 2: Machine is RUNNING
+        else {
+          console.log(
+            "[handleQrUpdate] Logic path: Machine is RUNNING/BREAKDOWN."
+          );
+          if (data.status === "FOUND") {
+            console.log(`[handleQrUpdate] RUNNING path, type: ${data.type}`);
+            switch (data.type) {
+              case "STOP":
+                console.log("Attempting to stop batch...");
+                if (!currentBatchId) {
+                  showAlert("Error: Cannot stop. Batch ID is missing.");
+                  return currentOeeData;
+                }
+                api_oee
+                  .put(
+                    `/oee-batches/${currentBatchId}/end?siteId=1&oeeId=${oeeId}`
+                  )
+                  .then(() => {
+                    // showAlert("✅ Batch stopped successfully!"); // ✨ NOTI
+                    fetchOeeDetail();
+                  })
+                  .catch((error) => {
+                    console.error("❌ Failed to end batch:", error);
+                    showAlert('Failed to send "end batch" command.');
+                  });
+                break;
+              case "START":
+                showAlert(`Cannot start. Batch is already ${currentStatus}.`);
+                break;
+              case "SKU":
+                showAlert(
+                  `Cannot scan new SKU. Batch is ${currentStatus}. Please stop first.`
+                );
+                break;
+              case "PD":
+                showAlert(
+                  `Cannot scan new Lot Number. Batch is ${currentStatus}. Please stop first.`
+                );
+                break;
+            }
+          } else if (data.status === "NOT_FOUND") {
+            console.log(
+              `[handleQrUpdate] RUNNING path, status: NOT_FOUND, type: ${data.type}`
+            );
+            showAlert(
+              `Invalid Scan (${data.type}): "${displayText}" not found.`
+            );
+          }
+        }
+
+        console.groupEnd();
+        return currentOeeData;
+      });
+    },
+    [oeeId, fetchOeeDetail, currentBatchId, lastScannedProductId]
   );
 
   // --- WebSocket: QR (Subscribe) ---
@@ -457,7 +438,9 @@ export default function OEEDetailPage() {
     // [GATEKEEPER] ถ้าไม่ได้เลือกโหมด WEBSOCKET, หรือ socket ไม่พร้อม, ให้ออกจากฟังก์ชัน
     if (!socketQr || !socketQr.connected || !oeeId) {
       if (!socketQr || !socketQr.connected) {
-        console.log("[WebSocketQr] Skipping subscription: Socket not connected.");
+        console.log(
+          "[WebSocketQr] Skipping subscription: Socket not connected."
+        );
       }
       if (!oeeId) {
         console.log("[WebSocketQr] Skipping subscription: OEE ID not ready.");
@@ -470,7 +453,9 @@ export default function OEEDetailPage() {
     socketQr.emit("join_room", roomName);
 
     const eventName = `qr_update_${oeeId}`;
-    console.log(`[WebSocketQr] Subscribing to: '${eventName}' (Mode: WEBSOCKET)`);
+    console.log(
+      `[WebSocketQr] Subscribing to: '${eventName}' (Mode: WEBSOCKET)`
+    );
     socketQr.on(eventName, handleQrUpdate);
 
     return () => {
@@ -480,35 +465,6 @@ export default function OEEDetailPage() {
   }, [socketQr, oeeId, handleQrUpdate, oeeData?.scanSource]);
 
   // --- Handlers ---
-
-  const handleScanSourceChange = (
-      event: React.MouseEvent<HTMLElement>,
-      newSource: ScanSource | null
-  ) => {
-    if (newSource && newSource !== oeeData?.scanSource) {
-      console.log(`[Debug] Scan source changed to: ${newSource}`);
-      const oldSource = oeeData?.scanSource;
-
-      setOeeData((prev) => (prev ? { ...prev, scanSource: newSource } : null));
-
-      // ✨ [แก้ไข] Uncomment API Call
-      api_qr
-          .patch(`/oee/${oeeId}/scan-source`, { scanSource: newSource })
-          .then(() => {
-            console.log("[Debug] Scan source saved to server.");
-          })
-          .catch((err) => {
-            console.error("[Debug] Failed to save scan source:", err);
-            showAlert("Failed to save scan source setting. Reverting.");
-            setOeeData(
-                (prev) =>
-                    prev
-                        ? { ...prev, scanSource: oldSource || "TCP" }
-                        : null
-            );
-          });
-    }
-  };
 
   // ✨ --- [START] อัปเดต Logic การสแกน USB ---
   const processScanInput = async (text: string) => {
@@ -561,8 +517,8 @@ export default function OEEDetailPage() {
         return;
       }
       if (
-          event.target instanceof HTMLInputElement ||
-          event.target instanceof HTMLTextAreaElement
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
       ) {
         return;
       }
@@ -574,7 +530,7 @@ export default function OEEDetailPage() {
       if (event.key === "Enter" || event.keyCode === 13) {
         if (globalScanBuffer.length > 0) {
           console.log(
-              `[Global Scan] 'Enter' pressed. Processing buffer: "${globalScanBuffer}"`
+            `[Global Scan] 'Enter' pressed. Processing buffer: "${globalScanBuffer}"`
           );
           processScanInput(globalScanBuffer); // เรียกฟังก์ชัน `async` (ไม่ต้อง await)
           setGlobalScanBuffer("");
@@ -586,9 +542,9 @@ export default function OEEDetailPage() {
       }
 
       setScanTimer(
-          setTimeout(() => {
-            setGlobalScanBuffer("");
-          }, 100)
+        setTimeout(() => {
+          setGlobalScanBuffer("");
+        }, 100)
       );
     };
 
@@ -600,14 +556,14 @@ export default function OEEDetailPage() {
   }, [oeeData, globalScanBuffer, scanTimer, processScanInput]);
 
   const handleInputChange =
-      (field: keyof OEEDetailData) =>
-          (event: React.ChangeEvent<HTMLInputElement>) => {
-            const value = event.target.value;
-            setOeeData((prev) => (prev ? { ...prev, [field]: value } : null));
-          };
+    (field: keyof OEEDetailData) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value;
+      setOeeData((prev) => (prev ? { ...prev, [field]: value } : null));
+    };
 
   const getChipColor = (
-      status: OEEStatus
+    status: OEEStatus
   ): "success" | "error" | "warning" | "default" => {
     switch (status) {
       case "running":
@@ -638,251 +594,202 @@ export default function OEEDetailPage() {
   // --- Render ---
   if (loading) {
     return (
-        <Box
-            sx={{
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              height: "100vh",
-            }}
-        >
-          <CircularProgress />{" "}
-          <Typography sx={{ ml: 2 }}>Loading Details...</Typography>
-        </Box>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <CircularProgress />{" "}
+        <Typography sx={{ ml: 2 }}>Loading Details...</Typography>
+      </Box>
     );
   }
   if (!oeeData) {
     return (
-        <Box
-            sx={{
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              height: "100vh",
-            }}
-        >
-          <Alert severity="error">OEE data not found for ID: {oeeId}</Alert>
-        </Box>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <Alert severity="error">OEE data not found for ID: {oeeId}</Alert>
+      </Box>
     );
   }
 
   const isFormEditable =
-      oeeData.status === "ended" || oeeData.status === "no plan";
+    oeeData.status === "ended" || oeeData.status === "no plan";
 
   const plannedQuantityValue = Number(oeeData.plannedQuantity);
   const formattedPlannedQuantity = isNaN(plannedQuantityValue)
-      ? oeeData.plannedQuantity
-      : plannedQuantityValue.toLocaleString("en-US");
+    ? oeeData.plannedQuantity
+    : plannedQuantityValue.toLocaleString("en-US");
 
   return (
-      <Box className="min-h-screen bg-slate-100">
-        <AppBar
-            position="static"
-            elevation={1}
-            sx={{ bgcolor: "white", color: "text.primary" }}
-        >
-          <Toolbar sx={{ px: 3 }}>
-            <IconButton
-                onClick={() => router.back()}
-                color="inherit"
-                sx={{ mr: 2 }}
-            >
-              <ArrowBackIcon />
-            </IconButton>
-            <Typography
-                variant="h6"
-                component="div"
-                sx={{ flexGrow: 1, fontWeight: 600 }}
-            >
-              OEE Detail
-            </Typography>
-          </Toolbar>
-        </AppBar>
+    <Box className="min-h-screen bg-slate-100">
+      <AppBar
+        position="static"
+        elevation={1}
+        sx={{ bgcolor: "white", color: "text.primary" }}
+      >
+        <Toolbar sx={{ px: 3 }}>
+          <IconButton
+            onClick={() => router.back()}
+            color="inherit"
+            sx={{ mr: 2 }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography
+            variant="h6"
+            component="div"
+            sx={{ flexGrow: 1, fontWeight: 600 }}
+          >
+            OEE Detail
+          </Typography>
+        </Toolbar>
+      </AppBar>
 
-        <main className="p-4 md:p-6 flex justify-center">
-          <Box className="w-full max-w-lg space-y-6">
-            {/* --- Scan Input Section --- */}
-            <Paper elevation={3} className="rounded-lg w-full">
-              <CardContent
-                  sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}
-              >
-                <Typography
-                    variant="h6"
-                    sx={{ fontWeight: 600, textAlign: "center" }}
-                >
-                  QR Scan Mode
-                </Typography>
-
-                <ToggleButtonGroup
-                    value={oeeData.scanSource}
-                    exclusive
-                    onChange={handleScanSourceChange}
-                    aria-label="Scan Source"
+      <main className="p-4 md:p-6 flex justify-center">
+        <Box className="w-full max-w-lg space-y-6">
+          {/* --- Main OEE Detail Card --- */}
+          <Paper elevation={3} className="rounded-lg overflow-hidden w-full">
+            <Box
+              sx={{
+                bgcolor: getStatusBackgroundColor(oeeData.status),
+                color: "white",
+                p: 2,
+                textAlign: "center",
+              }}
+            >
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                {oeeData.name}
+              </Typography>
+            </Box>
+            <CardContent sx={{ p: 3 }}>
+              <Box component="form" className="flex flex-col gap-4">
+                <Box sx={{ display: "flex", gap: 2 }}>
+                  <TextField
+                    label="SKU"
                     fullWidth
-                    color="primary"
-                >
-                  <ToggleButton value="TCP" aria-label="TCP mode">
-                    <WebsocketIcon sx={{ mr: 1 }} />
-                    TCP/IP
-                  </ToggleButton>
-                  <ToggleButton value="USB" aria-label="usb mode">
-                    <UsbIcon sx={{ mr: 1 }} />
-                    USB Scanner
-                  </ToggleButton>
-                </ToggleButtonGroup>
-
-                {/* Conditional USB Input Field */}
-                {/*{oeeData.scanSource === 'USB' && (*/}
-                {/*    <TextField*/}
-                {/*        label="Scan QR (Press Enter)"*/}
-                {/*        variant="outlined"*/}
-                {/*        fullWidth*/}
-                {/*        value={usbScanInput}*/}
-                {/*        onChange={(e) => setUsbScanInput(e.target.value)}*/}
-                {/*        onKeyDown={handleUsbScan}*/}
-                {/*        autoFocus*/}
-                {/*        placeholder="Click here or scan anywhere..."*/}
-                {/*        sx={{ mt: 1 }}*/}
-                {/*    />*/}
-                {/*)}*/}
-              </CardContent>
-            </Paper>
-            {/* --- Main OEE Detail Card --- */}
-            <Paper
-                elevation={3}
-                className="rounded-lg overflow-hidden w-full"
-            >
-              <Box
-                  sx={{
-                    bgcolor: getStatusBackgroundColor(oeeData.status),
-                    color: "white",
-                    p: 2,
-                    textAlign: "center",
-                  }}
-              >
-                <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                  {oeeData.name}
-                </Typography>
-              </Box>
-              <CardContent sx={{ p: 3 }}>
-                <Box component="form" className="flex flex-col gap-4">
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    <TextField
-                        label="SKU"
-                        fullWidth
-                        value={oeeData.sku}
-                        variant="outlined"
-                        onChange={handleInputChange("sku")}
-                        InputProps={{ readOnly: !isFormEditable }}
-                        sx={{
-                          "& .MuiInputBase-input[readOnly]": {
-                            backgroundColor: "#f0f0f0",
-                          },
-                        }}
-                    />
-                    <TextField
-                        label="Product ID"
-                        value={oeeData.productId ?? "-"}
-                        variant="outlined"
-                        fullWidth
-                        InputProps={{
-                          readOnly: true,
-                          sx: {
-                            input: {
-                              textAlign: "center", // จัด text ให้อยู่ตรงกลางแนวนอน
-                            },
-                          },
-                        }}
-                        sx={{
-                          width: 120,
-                          "& .MuiInputBase-input": {
-                            backgroundColor: "#f0f0f0",
-                          },
-                        }}
-                    />
-                  </Box>
-
-                  <TextField
-                      label="Lot Number (PD)"
-                      fullWidth
-                      value={oeeData.pd}
-                      variant="outlined"
-                      onChange={handleInputChange("pd")}
-                      InputProps={{ readOnly: !isFormEditable }}
-                      sx={{
-                        "& .MuiInputBase-input[readOnly]": {
-                          backgroundColor: "#f0f0f0",
-                        },
-                      }}
+                    value={oeeData.sku}
+                    variant="outlined"
+                    onChange={handleInputChange("sku")}
+                    InputProps={{ readOnly: !isFormEditable }}
+                    sx={{
+                      "& .MuiInputBase-input[readOnly]": {
+                        backgroundColor: "#f0f0f0",
+                      },
+                    }}
                   />
                   <TextField
-                      label="Planned Quantity"
-                      fullWidth
-                      variant="outlined"
-                      onChange={handleInputChange("plannedQuantity")}
-                      InputProps={{ readOnly: !isFormEditable }}
-                      value={
-                        isFormEditable
-                            ? oeeData.plannedQuantity
-                            : formattedPlannedQuantity
-                      }
-                      sx={{
-                        "& .MuiInputBase-input[readOnly]": {
-                          backgroundColor: "#f0f0f0",
+                    label="Product ID"
+                    value={oeeData.productId ?? "-"}
+                    variant="outlined"
+                    fullWidth
+                    InputProps={{
+                      readOnly: true,
+                      sx: {
+                        input: {
+                          textAlign: "center", // จัด text ให้อยู่ตรงกลางแนวนอน
                         },
-                      }}
+                      },
+                    }}
+                    sx={{
+                      width: 120,
+                      "& .MuiInputBase-input": {
+                        backgroundColor: "#f0f0f0",
+                      },
+                    }}
                   />
-                  <Box sx={{ textAlign: "center", mt: 2 }}>
-                    <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mb: 1, fontWeight: 600 }}
-                    >
-                      Current Status
-                    </Typography>
-                    <Chip
-                        label={
-                          oeeData.status === "unknown"
-                              ? "Starting"
-                              : capitalize(oeeData.status)
-                        }
-                        color={getChipColor(oeeData.status)}
-                        sx={{
-                          minWidth: 120,
-                          height: 40,
-                          fontSize: "1rem",
-                          fontWeight: 700,
-                        }}
-                    />
-                  </Box>
                 </Box>
-              </CardContent>
-            </Paper>
-          </Box>
-        </main>
 
-        {/* --- Alert Modal --- */}
-        <Dialog
-            open={isAlertModalOpen}
-            onClose={() => setIsAlertModalOpen(false)}
-        >
-          <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <ErrorIcon color="error" />
-            Scan Notification
-          </DialogTitle>
-          <DialogContent>
-            <DialogContentText>{alertMessage}</DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button
-                onClick={() => setIsAlertModalOpen(false)}
-                color="primary"
-                autoFocus
-            >
-              Close
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Box>
+                <TextField
+                  label="Lot Number (PD)"
+                  fullWidth
+                  value={oeeData.pd}
+                  variant="outlined"
+                  onChange={handleInputChange("pd")}
+                  InputProps={{ readOnly: !isFormEditable }}
+                  sx={{
+                    "& .MuiInputBase-input[readOnly]": {
+                      backgroundColor: "#f0f0f0",
+                    },
+                  }}
+                />
+                <TextField
+                  label="Planned Quantity"
+                  fullWidth
+                  variant="outlined"
+                  onChange={handleInputChange("plannedQuantity")}
+                  InputProps={{ readOnly: !isFormEditable }}
+                  value={
+                    isFormEditable
+                      ? oeeData.plannedQuantity
+                      : formattedPlannedQuantity
+                  }
+                  sx={{
+                    "& .MuiInputBase-input[readOnly]": {
+                      backgroundColor: "#f0f0f0",
+                    },
+                  }}
+                />
+                <Box sx={{ textAlign: "center", mt: 2 }}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 1, fontWeight: 600 }}
+                  >
+                    Current Status
+                  </Typography>
+                  <Chip
+                    label={
+                      oeeData.status === "unknown"
+                        ? "Starting"
+                        : capitalize(oeeData.status)
+                    }
+                    color={getChipColor(oeeData.status)}
+                    sx={{
+                      minWidth: 120,
+                      height: 40,
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                    }}
+                  />
+                </Box>
+              </Box>
+            </CardContent>
+          </Paper>
+        </Box>
+      </main>
+
+      {/* --- Alert Modal --- */}
+      <Dialog
+        open={isAlertModalOpen}
+        onClose={() => setIsAlertModalOpen(false)}
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <ErrorIcon color="error" />
+          Scan Notification
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>{alertMessage}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setIsAlertModalOpen(false)}
+            color="primary"
+            autoFocus
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 }

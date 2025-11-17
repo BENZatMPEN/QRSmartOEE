@@ -10,6 +10,7 @@ export interface OEEConfiguration {
   tcpIp: string;
   port: number;
   pdPrefixFormat: string;
+  scanSource: string;
 }
 
 export interface QRProduct {
