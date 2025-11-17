@@ -85,7 +85,7 @@ export default function OEEDetailPage() {
 
   // --- Helper: Function to show Alert Modal ---
   const showAlert = (message: string) => {
-    console.log(`[Alert] Showing modal: "${message}"`);
+    // console.log(`[Alert] Showing modal: "${message}"`);
     setAlertMessage(message);
     setIsAlertModalOpen(true);
   };
@@ -93,7 +93,7 @@ export default function OEEDetailPage() {
   // ✨ --- [REFACTORED] fetchOeeDetail ---
   const fetchOeeDetail = useCallback(async () => {
     if (!oeeId) return;
-    console.log(`[Debug] fetchOeeDetail: Fetching data for oeeId: ${oeeId}`);
+    // console.log(`[Debug] fetchOeeDetail: Fetching data for oeeId: ${oeeId}`);
     setLoading(true);
     try {
       // 1. สร้าง Promises สำหรับ API ทั้งสอง
@@ -111,10 +111,10 @@ export default function OEEDetailPage() {
       // 3. ประมวลผล Config (ต้องสำเร็จเสมอ)
       let configData: any;
       if (configResult.status === "fulfilled" && configResult.value.data) {
-        console.log(
-          "[Debug] fetchOeeDetail: Config API response received:",
-          configResult.value.data
-        );
+        // console.log(
+        //   "[Debug] fetchOeeDetail: Config API response received:",
+        //   configResult.value.data
+        // );
         configData = configResult.value.data;
       } else {
         console.error(
@@ -130,10 +130,10 @@ export default function OEEDetailPage() {
       let batchData: any = {};
       let product: any = null;
       if (batchResult.status === "fulfilled" && batchResult.value.data) {
-        console.log(
-          "[Debug] fetchOeeDetail: Batch API response received:",
-          batchResult.value.data
-        );
+        // console.log(
+        //   "[Debug] fetchOeeDetail: Batch API response received:",
+        //   batchResult.value.data
+        // );
         batchData = batchResult.value.data;
         product = batchData.product;
         setCurrentBatchId(batchData.id);
@@ -162,7 +162,7 @@ export default function OEEDetailPage() {
         scanSource: configData.scanSource?.toUpperCase() || "TCP",
       };
 
-      console.log("[Debug] formatBatchData: Result:", formatted);
+      //   console.log("[Debug] formatBatchData: Result:", formatted);
       setOeeData(formatted);
     } catch (error) {
       console.error("[Debug] fetchOeeDetail: General Error:", error);
@@ -187,15 +187,15 @@ export default function OEEDetailPage() {
 
   useEffect(() => {
     if (!socket || !socket.connected) {
-      console.log("[TCP/IP] Dashboard socket not ready, skipping listener.");
+      //   console.log("[TCP/IP] Dashboard socket not ready, skipping listener.");
       return;
     }
     const siteId = 1;
     const eventName = `dashboard_${siteId}_${user?.id}`;
 
     const handleDashboardUpdate = (stats: any) => {
-      console.groupCollapsed(`[TCP/IP] Received '${eventName}'`);
-      console.log("Raw stats:", stats);
+      //   console.groupCollapsed(`[TCP/IP] Received '${eventName}'`);
+      //   console.log("Raw stats:", stats);
       if (stats && Array.isArray(stats.oees)) {
         const currentOeeDataFromSocket = stats.oees.find(
           (oee: any) => oee.id.toString() === oeeId
@@ -203,15 +203,15 @@ export default function OEEDetailPage() {
         if (currentOeeDataFromSocket) {
           const newStatus =
             currentOeeDataFromSocket.batchStatus?.toLowerCase() || "no plan";
-          console.log(`[TCP/IP] Found matching OEE. New status: ${newStatus}`);
+          //   console.log(`[TCP/IP] Found matching OEE. New status: ${newStatus}`);
           setOeeData((prevData) => {
             if (!prevData) return null;
             return { ...prevData, status: newStatus };
           });
         } else {
-          console.log(
-            `[TCP/IP] No matching OEE data found for ID ${oeeId} in this update.`
-          );
+          //   console.log(
+          //     `[TCP/IP] No matching OEE data found for ID ${oeeId} in this update.`
+          //   );
         }
       } else {
         console.warn(
@@ -222,10 +222,10 @@ export default function OEEDetailPage() {
       console.groupEnd();
     };
 
-    console.log(`[TCP/IP] Subscribing to: '${eventName}'`);
+    // console.log(`[TCP/IP] Subscribing to: '${eventName}'`);
     socket.on(eventName, handleDashboardUpdate);
     return () => {
-      console.log(`[TCP/IP] Unsubscribing from: '${eventName}'`);
+      //   console.log(`[TCP/IP] Unsubscribing from: '${eventName}'`);
       socket.off(eventName, handleDashboardUpdate);
     };
   }, [socket, oeeId, user?.id]);
@@ -236,13 +236,13 @@ export default function OEEDetailPage() {
       console.groupCollapsed(
         `[handleQrUpdate] 📦 Received QR update: ${data.type} - ${data.status}`
       );
-      console.log("Raw data:", data);
+      //   console.log("Raw data:", data);
 
       // [GATEKEEPER]
       if (data.oeeId !== Number(oeeId)) {
-        console.log(
-          `[handleQrUpdate] Ignoring event for oeeId ${data.oeeId} (this page is ${oeeId})`
-        );
+        // console.log(
+        //   `[handleQrUpdate] Ignoring event for oeeId ${data.oeeId} (this page is ${oeeId})`
+        // );
         console.groupEnd();
         return;
       }
@@ -253,25 +253,25 @@ export default function OEEDetailPage() {
       if (data.type === "STOP" && displayText.startsWith("stop_"))
         displayText = displayText.substring(5);
 
-      console.log("Cleaned text:", displayText);
+      //   console.log("Cleaned text:", displayText);
 
       if (
         data.type === "SKU" &&
         data.status === "FOUND" &&
         data.productInfo?.productId
       ) {
-        console.log(
-          `[handleQrUpdate] Setting LastScannedProductId: ${data.productInfo.productId}`
-        );
+        // console.log(
+        //   `[handleQrUpdate] Setting LastScannedProductId: ${data.productInfo.productId}`
+        // );
         setLastScannedProductId(parseInt(data.productInfo.productId));
       }
 
       setOeeData((currentOeeData) => {
         if (!currentOeeData) {
-          console.log(
-            "[handleQrUpdate] Skipping state update, currentOeeData is null."
-          );
-          console.groupEnd();
+          //   console.log(
+          //     "[handleQrUpdate] Skipping state update, currentOeeData is null."
+          //   );
+          //   console.groupEnd();
           return null;
         }
 
@@ -279,18 +279,18 @@ export default function OEEDetailPage() {
         const isEnded =
           currentStatus === "ended" || currentStatus === "no plan";
 
-        console.log(
-          `[handleQrUpdate] Current Status: ${currentStatus} (isEnded: ${isEnded})`
-        );
+        // console.log(
+        //   `[handleQrUpdate] Current Status: ${currentStatus} (isEnded: ${isEnded})`
+        // );
 
         // CASE 1: Machine is ENDED
         if (isEnded) {
-          console.log("[handleQrUpdate] Logic path: Machine is ENDED.");
+          //   console.log("[handleQrUpdate] Logic path: Machine is ENDED.");
           if (data.status === "FOUND") {
-            console.log(`[handleQrUpdate] ENDED path, type: ${data.type}`);
+            // console.log(`[handleQrUpdate] ENDED path, type: ${data.type}`);
             switch (data.type) {
               case "START":
-                console.log("Attempting to start batch...");
+                // console.log("Attempting to start batch...");
                 if (!lastScannedProductId) {
                   showAlert("Please scan a valid product SKU before starting.");
                   return currentOeeData;
@@ -366,9 +366,9 @@ export default function OEEDetailPage() {
                 return { ...currentOeeData, pd: data.scannedText };
             }
           } else if (data.status === "NOT_FOUND") {
-            console.log(
-              `[handleQrUpdate] ENDED path, status: NOT_FOUND, type: ${data.type}`
-            );
+            // console.log(
+            //   `[handleQrUpdate] ENDED path, status: NOT_FOUND, type: ${data.type}`
+            // );
             showAlert(
               `Invalid Scan (${data.type}): "${displayText}" not found.`
             );
@@ -377,14 +377,14 @@ export default function OEEDetailPage() {
 
         // CASE 2: Machine is RUNNING
         else {
-          console.log(
-            "[handleQrUpdate] Logic path: Machine is RUNNING/BREAKDOWN."
-          );
+          //   console.log(
+          //     "[handleQrUpdate] Logic path: Machine is RUNNING/BREAKDOWN."
+          //   );
           if (data.status === "FOUND") {
-            console.log(`[handleQrUpdate] RUNNING path, type: ${data.type}`);
+            // console.log(`[handleQrUpdate] RUNNING path, type: ${data.type}`);
             switch (data.type) {
               case "STOP":
-                console.log("Attempting to stop batch...");
+                // console.log("Attempting to stop batch...");
                 if (!currentBatchId) {
                   showAlert("Error: Cannot stop. Batch ID is missing.");
                   return currentOeeData;
@@ -417,9 +417,9 @@ export default function OEEDetailPage() {
                 break;
             }
           } else if (data.status === "NOT_FOUND") {
-            console.log(
-              `[handleQrUpdate] RUNNING path, status: NOT_FOUND, type: ${data.type}`
-            );
+            // console.log(
+            //   `[handleQrUpdate] RUNNING path, status: NOT_FOUND, type: ${data.type}`
+            // );
             showAlert(
               `Invalid Scan (${data.type}): "${displayText}" not found.`
             );
@@ -438,9 +438,9 @@ export default function OEEDetailPage() {
     // [GATEKEEPER] ถ้าไม่ได้เลือกโหมด WEBSOCKET, หรือ socket ไม่พร้อม, ให้ออกจากฟังก์ชัน
     if (!socketQr || !socketQr.connected || !oeeId) {
       if (!socketQr || !socketQr.connected) {
-        console.log(
-          "[WebSocketQr] Skipping subscription: Socket not connected."
-        );
+        // console.log(
+        //   "[WebSocketQr] Skipping subscription: Socket not connected."
+        // );
       }
       if (!oeeId) {
         console.log("[WebSocketQr] Skipping subscription: OEE ID not ready.");
@@ -449,17 +449,17 @@ export default function OEEDetailPage() {
     }
 
     const roomName = `site_1`;
-    console.log(`[WebSocketQr] Emitting 'join_room' to join: '${roomName}'`);
+    // console.log(`[WebSocketQr] Emitting 'join_room' to join: '${roomName}'`);
     socketQr.emit("join_room", roomName);
 
     const eventName = `qr_update_${oeeId}`;
-    console.log(
-      `[WebSocketQr] Subscribing to: '${eventName}' (Mode: WEBSOCKET)`
-    );
+    // console.log(
+    //   `[WebSocketQr] Subscribing to: '${eventName}' (Mode: WEBSOCKET)`
+    // );
     socketQr.on(eventName, handleQrUpdate);
 
     return () => {
-      console.log(`[WebSocketQr] Unsubscribing from: '${eventName}'`);
+      //   console.log(`[WebSocketQr] Unsubscribing from: '${eventName}'`);
       socketQr.off(eventName, handleQrUpdate);
     };
   }, [socketQr, oeeId, handleQrUpdate, oeeData?.scanSource]);
@@ -478,7 +478,7 @@ export default function OEEDetailPage() {
         text: text,
         oeeId: Number(oeeId),
       };
-      console.log("Sending payload:", payload);
+      //   console.log("Sending payload:", payload);
 
       // 2. ยิง API POST ไปยัง Backend (Endpoint: /oees/scan-usb)
       // Backend จะรับค่านี้ไปประมวลผล (ค้นหา SKU, PD, ฯลฯ)
@@ -529,9 +529,9 @@ export default function OEEDetailPage() {
       // ✨ [แก้ไข] ตรวจสอบทั้ง key และ keyCode
       if (event.key === "Enter" || event.keyCode === 13) {
         if (globalScanBuffer.length > 0) {
-          console.log(
-            `[Global Scan] 'Enter' pressed. Processing buffer: "${globalScanBuffer}"`
-          );
+          //   console.log(
+          //     `[Global Scan] 'Enter' pressed. Processing buffer: "${globalScanBuffer}"`
+          //   );
           processScanInput(globalScanBuffer); // เรียกฟังก์ชัน `async` (ไม่ต้อง await)
           setGlobalScanBuffer("");
         }
